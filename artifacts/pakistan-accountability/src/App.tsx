@@ -11,6 +11,7 @@ import Officials from "@/pages/officials";
 import OfficialDetail from "@/pages/official-detail";
 import RiskScores from "@/pages/risk-scores";
 import Alerts from "@/pages/alerts";
+import Parties from "@/pages/parties";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -28,6 +29,7 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/databases" component={Databases} />
+        <Route path="/parties" component={Parties} />
         <Route path="/officials" component={Officials} />
         <Route path="/officials/:id" component={OfficialDetail} />
         <Route path="/risk-scores" component={RiskScores} />
