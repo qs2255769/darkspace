@@ -1,664 +1,330 @@
 import { db } from "@workspace/db";
 import { publicDatabasesTable, officialsTable, alertsTable } from "@workspace/db/schema";
 
+function buildConnections(name: string, id: number, companies: string[], relatives: string[], districts: string[]) {
+  const nodes: Array<{ id: string; label: string; type: string; riskScore?: number; value?: string }> = [
+    { id: `off-${id}`, label: name.split(" ").slice(-1)[0], type: "official" },
+  ];
+  const edges: Array<{ source: string; target: string; label: string; suspicious: boolean }> = [];
+
+  companies.forEach((c, i) => {
+    const val = `PKR ${(Math.random() * 500 + 50).toFixed(0)}M`;
+    nodes.push({ id: `co-${id}-${i}`, label: c.substring(0, 18), type: "company", value: val });
+    edges.push({ source: `off-${id}`, target: `co-${id}-${i}`, label: "Director/Owner", suspicious: i === 0 });
+  });
+
+  relatives.forEach((r, i) => {
+    nodes.push({ id: `rel-${id}-${i}`, label: r, type: "relative" });
+    edges.push({ source: `off-${id}`, target: `rel-${id}-${i}`, label: "Relative", suspicious: false });
+    if (companies[i]) {
+      nodes.push({ id: `ct-${id}-${i}`, label: `Contract #PK-${id}${i}`, type: "contract", value: `PKR ${(Math.random() * 300 + 30).toFixed(0)}M` });
+      edges.push({ source: `rel-${id}-${i}`, target: `co-${id}-${i}`, label: "Shareholder", suspicious: true });
+      edges.push({ source: `co-${id}-${i}`, target: `ct-${id}-${i}`, label: "Won Contract", suspicious: true });
+    }
+  });
+
+  districts.forEach((d, i) => {
+    nodes.push({ id: `dist-${id}-${i}`, label: d, type: "district" });
+    edges.push({ source: `off-${id}`, target: `dist-${id}-${i}`, label: "Directed Funds", suspicious: true });
+  });
+
+  return { nodes, edges };
+}
+
 async function seed() {
   console.log("Seeding Pakistan Accountability Intelligence System...");
-
   await db.delete(alertsTable);
   await db.delete(officialsTable);
   await db.delete(publicDatabasesTable);
 
+  // --- DATABASES ---
   const databases = [
-    {
-      name: "National Database and Registration Authority",
-      acronym: "NADRA",
-      category: "electoral",
-      organization: "Ministry of Interior",
-      description: "Central identity database containing CNIC (Computerized National Identity Card) records for all Pakistani citizens. The backbone for cross-referencing individuals across all other government databases.",
-      dataTypes: JSON.stringify(["CNIC numbers", "Biometric data", "Family tree data", "Address history", "Date of birth"]),
-      accessLevel: "restricted",
-      url: "https://nadra.gov.pk",
-      recordsEstimated: "130 million+",
-      lastUpdated: "2024-01",
-      integrationStatus: "manual",
-      keyFields: JSON.stringify(["CNIC", "name", "father_name", "date_of_birth", "address"]),
-      notes: "CNIC is the master key linking individuals across all government systems. Partial access via verification API for authorized agencies.",
-    },
-    {
-      name: "Election Commission of Pakistan - Asset Declarations",
-      acronym: "ECP",
-      category: "electoral",
-      organization: "Election Commission of Pakistan",
-      description: "Mandatory asset and financial declarations filed by all candidates and elected officials. Publicly accessible via the ECP website. Key source for wealth anomaly detection.",
-      dataTypes: JSON.stringify(["Asset declarations", "Tax returns", "Business interests", "Liabilities", "Income sources"]),
-      accessLevel: "public",
-      url: "https://ecp.gov.pk",
-      recordsEstimated: "20,000+ declarations",
-      lastUpdated: "2024-02",
-      integrationStatus: "integrated",
-      keyFields: JSON.stringify(["CNIC", "name", "party", "constituency", "declared_assets", "declared_liabilities"]),
-      notes: "Fully public and downloadable. Critical for asset mismatch detection. PDF format requires OCR/parsing.",
-    },
-    {
-      name: "Securities and Exchange Commission of Pakistan - Company Registry",
-      acronym: "SECP",
-      category: "corporate",
-      organization: "Securities and Exchange Commission of Pakistan",
-      description: "Official registry of all incorporated companies in Pakistan. Contains director/shareholder information linkable to CNIC. Essential for detecting shell companies and beneficial ownership.",
-      dataTypes: JSON.stringify(["Company registrations", "Director/shareholder info", "Share structures", "Annual returns", "CNIC of directors"]),
-      accessLevel: "public",
-      url: "https://efiling.secp.gov.pk",
-      recordsEstimated: "200,000+ companies",
-      lastUpdated: "2024-01",
-      integrationStatus: "integrated",
-      keyFields: JSON.stringify(["company_number", "director_cnic", "shareholder_cnic", "registered_address", "paid_up_capital"]),
-      notes: "Public eFiling portal available. CNIC linkage enables tracing companies to politicians and their relatives.",
-    },
-    {
-      name: "Federal Board of Revenue - Tax Data",
-      acronym: "FBR",
-      category: "financial",
-      organization: "Federal Board of Revenue",
-      description: "Tax filing data including income tax returns, business income, and property tax. Restricted access but cross-referenceable with ECP asset declarations to detect unexplained wealth.",
-      dataTypes: JSON.stringify(["Income tax returns", "Tax filer status", "Tax paid amounts", "Business income", "Property declarations"]),
-      accessLevel: "partial",
-      url: "https://fbr.gov.pk",
-      recordsEstimated: "4 million+ filers",
-      lastUpdated: "2024-01",
-      integrationStatus: "manual",
-      keyFields: JSON.stringify(["CNIC", "ntn", "income_declared", "tax_paid", "filing_status"]),
-      notes: "Active taxpayer list is publicly available. Detailed returns are restricted. FBR-ECP comparison reveals wealth gaps.",
-    },
-    {
-      name: "Public Procurement Regulatory Authority - Contract Database",
-      acronym: "PPRA",
-      category: "procurement",
-      organization: "Public Procurement Regulatory Authority",
-      description: "Government procurement contracts, tenders, and awards database. Legally required public disclosure. Enables detection of contract patterns connected to political networks.",
-      dataTypes: JSON.stringify(["Contract awards", "Tender notices", "Bidding results", "Vendor information", "Contract values"]),
-      accessLevel: "public",
-      url: "https://ppra.org.pk",
-      recordsEstimated: "500,000+ contracts",
-      lastUpdated: "2024-02",
-      integrationStatus: "integrated",
-      keyFields: JSON.stringify(["contract_id", "procuring_agency", "vendor_name", "vendor_ntn", "contract_value", "award_date"]),
-      notes: "Federal PPRA covers federal contracts. Provincial procurement authorities (KPPRA, SPPRA, PPRA Punjab) exist separately.",
-    },
-    {
-      name: "Accountant General Pakistan Revenue - Government Payroll",
-      acronym: "AGPR",
-      category: "payroll",
-      organization: "Ministry of Finance",
-      description: "Federal government payroll system covering all civil servants. Critical for ghost employee detection by cross-referencing active CNIC status with NADRA.",
-      dataTypes: JSON.stringify(["Employee names", "CNIC", "Salary grades", "Departments", "Posting history"]),
-      accessLevel: "restricted",
-      url: "https://agpr.gov.pk",
-      recordsEstimated: "600,000+ federal employees",
-      lastUpdated: "2023-12",
-      integrationStatus: "planned",
-      keyFields: JSON.stringify(["employee_cnic", "department", "basic_pay_scale", "posting_date", "current_posting"]),
-      notes: "Ghost employee detection requires NADRA + AGPR cross-reference. Provincial payrolls managed by respective AGs.",
-    },
-    {
-      name: "National Accountability Bureau - Conviction & Case Records",
-      acronym: "NAB",
-      category: "judicial",
-      organization: "National Accountability Bureau",
-      description: "Records of accountability cases, convictions, plea bargains, and investigated entities. Public accountability court decisions are published and searchable.",
-      dataTypes: JSON.stringify(["Case files", "Convictions", "Plea bargains", "Assets recovered", "Accused names"]),
-      accessLevel: "partial",
-      url: "https://nab.gov.pk",
-      recordsEstimated: "10,000+ cases",
-      lastUpdated: "2024-01",
-      integrationStatus: "manual",
-      keyFields: JSON.stringify(["accused_name", "case_number", "amount_involved", "verdict", "reference_date"]),
-      notes: "Accountability court verdicts are public. NAB uses CNIC for identification in cases.",
-    },
-    {
-      name: "Pakistan Revenue Automation Limited - Land Records",
-      acronym: "PRAL",
-      category: "land",
-      organization: "Provincial Revenue Departments",
-      description: "Digitized land ownership records (Fard) for Punjab, KPK, Sindh, and Balochistan. Enables detection of undisclosed property assets held by officials or relatives.",
-      dataTypes: JSON.stringify(["Land ownership", "Property transfers", "Khasra numbers", "Owner CNIC", "Survey data"]),
-      accessLevel: "partial",
-      url: "https://punjab-zameen.gov.pk",
-      recordsEstimated: "50 million+ land records",
-      lastUpdated: "2024-01",
-      integrationStatus: "manual",
-      keyFields: JSON.stringify(["owner_cnic", "khasra_number", "district", "land_area", "transfer_date"]),
-      notes: "Punjab most digitized. Sindh, KPK, Balochistan partially digitized. Key for finding undisclosed land assets.",
-    },
-    {
-      name: "State Bank of Pakistan - Financial Sanctions List",
-      acronym: "SBP",
-      category: "financial",
-      organization: "State Bank of Pakistan",
-      description: "Financial sanctions, AML/CFT watchlists, and Politically Exposed Persons (PEP) database. Includes FATF compliance data and suspicious transaction monitoring.",
-      dataTypes: JSON.stringify(["Sanctions lists", "PEP database", "Suspicious transaction reports", "AML flags", "Shell company alerts"]),
-      accessLevel: "partial",
-      url: "https://sbp.org.pk",
-      recordsEstimated: "Classified",
-      lastUpdated: "2024-02",
-      integrationStatus: "planned",
-      keyFields: JSON.stringify(["name", "cnic", "account_details", "pep_status", "sanction_reason"]),
-      notes: "PEP list and sanctions data partially public. SBP reports suspicious transactions to FMU (Financial Monitoring Unit).",
-    },
-    {
-      name: "Pakistan Tehsil Municipal Administration - Property Tax",
-      acronym: "TMA",
-      category: "land",
-      organization: "Local Government Departments",
-      description: "Municipal property tax records including commercial and residential properties. Useful for detecting undeclared urban properties linked to politicians via relatives.",
-      dataTypes: JSON.stringify(["Property ownership", "Tax assessments", "Commercial property", "Residential property", "CNIC of owners"]),
-      accessLevel: "partial",
-      url: null,
-      recordsEstimated: "25 million+ properties",
-      lastUpdated: "2023-09",
-      integrationStatus: "manual",
-      keyFields: JSON.stringify(["owner_name", "owner_cnic", "property_address", "assessed_value", "tax_paid"]),
-      notes: "Digitization inconsistent across tehsils. Urban properties better covered. Critical for detecting hidden real estate.",
-    },
-    {
-      name: "Overseas Employment Corporation - Remittance Data",
-      acronym: "OEC",
-      category: "financial",
-      organization: "Ministry of Overseas Pakistanis",
-      description: "Data on overseas Pakistanis and formal remittance channels. Helps trace foreign income flows and detect money laundering through remittance accounts.",
-      dataTypes: JSON.stringify(["Worker registrations", "Remittance amounts", "Country of employment", "Bank accounts", "Family CNIC"]),
-      accessLevel: "restricted",
-      url: "https://oec.org.pk",
-      recordsEstimated: "9 million+ overseas workers",
-      lastUpdated: "2023-11",
-      integrationStatus: "manual",
-      keyFields: JSON.stringify(["worker_cnic", "destination_country", "remittance_amount", "frequency", "bank_account"]),
-      notes: "Useful for reverse money laundering detection — large inbound remittances to political families.",
-    },
-    {
-      name: "Competition Commission of Pakistan - Merger & Acquisition Records",
-      acronym: "CCP",
-      category: "corporate",
-      organization: "Competition Commission of Pakistan",
-      description: "Records of mergers, acquisitions, and anti-competitive practices. Reveals when politically connected companies gain market dominance through regulatory capture.",
-      dataTypes: JSON.stringify(["Merger approvals", "Market share data", "Cartel investigations", "Company ownership", "Board compositions"]),
-      accessLevel: "public",
-      url: "https://cc.gov.pk",
-      recordsEstimated: "5,000+ decisions",
-      lastUpdated: "2024-01",
-      integrationStatus: "planned",
-      keyFields: JSON.stringify(["company_name", "transaction_value", "market_share_post", "approval_date", "board_members"]),
-      notes: "CCP decisions are publicly published. Useful for detecting regulatory capture by politically connected companies.",
-    },
-    {
-      name: "Federal Investigation Agency - Proclaimed Offenders",
-      acronym: "FIA",
-      category: "law_enforcement",
-      organization: "Federal Investigation Agency",
-      description: "FIA cybercrime, financial crime, and human trafficking case records. Includes IBOS (Immigration Border Operations System) exit/entry data for tracking asset movement.",
-      dataTypes: JSON.stringify(["Case records", "Proclaimed offenders", "Immigration data", "Cybercrime reports", "Hawala busts"]),
-      accessLevel: "partial",
-      url: "https://fia.gov.pk",
-      recordsEstimated: "Classified",
-      lastUpdated: "2024-01",
-      integrationStatus: "manual",
-      keyFields: JSON.stringify(["accused_cnic", "case_type", "offense", "status", "travel_history"]),
-      notes: "Publicly wanted lists available. Immigration data critical for tracking offshore asset movement.",
-    },
-    {
-      name: "Development Authorities Budget Tracker - PSDP",
-      acronym: "PSDP",
-      category: "procurement",
-      organization: "Planning Commission of Pakistan",
-      description: "Public Sector Development Programme tracking all federal development projects, funds released, and expenditure. Enables detection of fund diversion at district level.",
-      dataTypes: JSON.stringify(["Development projects", "Funds released", "Expenditure", "Implementing agencies", "District allocations"]),
-      accessLevel: "public",
-      url: "https://pc.gov.pk",
-      recordsEstimated: "10,000+ active projects",
-      lastUpdated: "2024-02",
-      integrationStatus: "integrated",
-      keyFields: JSON.stringify(["project_id", "district", "approved_cost", "released_amount", "expenditure", "status"]),
-      notes: "Fully public PSDP data. Cross-referencing fund releases vs. contracts awarded reveals suspicious patterns.",
-    },
-    {
-      name: "Directorate General of Immigration - Passport & Travel",
-      acronym: "DGI",
-      category: "financial",
-      organization: "Ministry of Interior",
-      description: "Passport issuance and travel history records. Useful for tracking when officials travel to offshore financial centers and correlating with suspicious fund movements.",
-      dataTypes: JSON.stringify(["Passport records", "Travel history", "Entry/exit stamps", "Visa data", "Dual nationality flags"]),
-      accessLevel: "restricted",
-      url: "https://dgip.gov.pk",
-      recordsEstimated: "25 million+ passports",
-      lastUpdated: "2024-01",
-      integrationStatus: "manual",
-      keyFields: JSON.stringify(["passport_number", "cnic", "travel_dates", "destination", "dual_nationality"]),
-      notes: "Restricted access. Travel to UAE, UK, Switzerland by politicians during asset declaration periods is flagged.",
-    },
+    { name: "National Database and Registration Authority", acronym: "NADRA", category: "electoral", organization: "Ministry of Interior", description: "Central identity database containing CNIC records for all Pakistani citizens. The backbone for cross-referencing individuals across all government databases.", dataTypes: JSON.stringify(["CNIC numbers","Biometric data","Family tree data","Address history","Date of birth"]), accessLevel: "restricted", url: "https://nadra.gov.pk", recordsEstimated: "130 million+", lastUpdated: "2024-01", integrationStatus: "manual", keyFields: JSON.stringify(["CNIC","name","father_name","date_of_birth","address"]), notes: "CNIC is the master key linking individuals across all government systems. Partial access via verification API for authorized agencies." },
+    { name: "Election Commission of Pakistan - Asset Declarations", acronym: "ECP", category: "electoral", organization: "Election Commission of Pakistan", description: "Mandatory asset and financial declarations filed by all candidates and elected officials. Publicly accessible. Key source for wealth anomaly detection.", dataTypes: JSON.stringify(["Asset declarations","Tax returns","Business interests","Liabilities","Income sources"]), accessLevel: "public", url: "https://ecp.gov.pk", recordsEstimated: "20,000+ declarations", lastUpdated: "2024-02", integrationStatus: "integrated", keyFields: JSON.stringify(["CNIC","name","party","constituency","declared_assets","declared_liabilities"]), notes: "Fully public and downloadable. Critical for asset mismatch detection. PDF format requires OCR/parsing." },
+    { name: "Securities and Exchange Commission of Pakistan", acronym: "SECP", category: "corporate", organization: "Securities and Exchange Commission of Pakistan", description: "Official registry of all incorporated companies in Pakistan. Contains director/shareholder information linkable to CNIC. Essential for detecting shell companies.", dataTypes: JSON.stringify(["Company registrations","Director/shareholder info","Share structures","Annual returns","CNIC of directors"]), accessLevel: "public", url: "https://efiling.secp.gov.pk", recordsEstimated: "200,000+ companies", lastUpdated: "2024-01", integrationStatus: "integrated", keyFields: JSON.stringify(["company_number","director_cnic","shareholder_cnic","registered_address","paid_up_capital"]), notes: "Public eFiling portal. CNIC linkage enables tracing companies to politicians and relatives." },
+    { name: "Federal Board of Revenue - Tax Data", acronym: "FBR", category: "financial", organization: "Federal Board of Revenue", description: "Tax filing data including income tax returns, business income, and property tax. Cross-referenceable with ECP asset declarations to detect unexplained wealth.", dataTypes: JSON.stringify(["Income tax returns","Tax filer status","Tax paid amounts","Business income","Property declarations"]), accessLevel: "partial", url: "https://fbr.gov.pk", recordsEstimated: "4 million+ filers", lastUpdated: "2024-01", integrationStatus: "manual", keyFields: JSON.stringify(["CNIC","ntn","income_declared","tax_paid","filing_status"]), notes: "Active taxpayer list publicly available. Detailed returns restricted. FBR-ECP comparison reveals wealth gaps." },
+    { name: "Public Procurement Regulatory Authority", acronym: "PPRA", category: "procurement", organization: "Public Procurement Regulatory Authority", description: "Government procurement contracts, tenders, and awards. Federal PPRA legally requires public disclosure. Enables detection of contract patterns connected to political networks.", dataTypes: JSON.stringify(["Contract awards","Tender notices","Bidding results","Vendor information","Contract values"]), accessLevel: "public", url: "https://ppra.org.pk", recordsEstimated: "500,000+ contracts", lastUpdated: "2024-02", integrationStatus: "integrated", keyFields: JSON.stringify(["contract_id","procuring_agency","vendor_name","vendor_ntn","contract_value","award_date"]), notes: "Federal PPRA covers federal contracts. Provincial procurement authorities exist separately." },
+    { name: "Accountant General Pakistan Revenue - Government Payroll", acronym: "AGPR", category: "payroll", organization: "Ministry of Finance", description: "Federal government payroll system covering all civil servants. Critical for ghost employee detection by cross-referencing active CNIC status with NADRA.", dataTypes: JSON.stringify(["Employee names","CNIC","Salary grades","Departments","Posting history"]), accessLevel: "restricted", url: "https://agpr.gov.pk", recordsEstimated: "600,000+ federal employees", lastUpdated: "2023-12", integrationStatus: "planned", keyFields: JSON.stringify(["employee_cnic","department","basic_pay_scale","posting_date","current_posting"]), notes: "Ghost employee detection requires NADRA + AGPR cross-reference." },
+    { name: "National Accountability Bureau - Case Records", acronym: "NAB", category: "judicial", organization: "National Accountability Bureau", description: "Records of accountability cases, convictions, plea bargains, and investigated entities. Public accountability court decisions are published.", dataTypes: JSON.stringify(["Case files","Convictions","Plea bargains","Assets recovered","Accused names"]), accessLevel: "partial", url: "https://nab.gov.pk", recordsEstimated: "10,000+ cases", lastUpdated: "2024-01", integrationStatus: "manual", keyFields: JSON.stringify(["accused_name","case_number","amount_involved","verdict","reference_date"]), notes: "Accountability court verdicts are public. NAB uses CNIC for identification." },
+    { name: "Pakistan Revenue Automation Limited - Land Records", acronym: "PRAL", category: "land", organization: "Provincial Revenue Departments", description: "Digitized land ownership records (Fard) for Punjab, KPK, Sindh, Balochistan. Detects undisclosed property assets.", dataTypes: JSON.stringify(["Land ownership","Property transfers","Khasra numbers","Owner CNIC","Survey data"]), accessLevel: "partial", url: "https://punjab-zameen.gov.pk", recordsEstimated: "50 million+ land records", lastUpdated: "2024-01", integrationStatus: "manual", keyFields: JSON.stringify(["owner_cnic","khasra_number","district","land_area","transfer_date"]), notes: "Punjab most digitized. Sindh, KPK, Balochistan partially digitized." },
+    { name: "State Bank of Pakistan - PEP & Sanctions List", acronym: "SBP", category: "financial", organization: "State Bank of Pakistan", description: "Financial sanctions, AML/CFT watchlists, and Politically Exposed Persons database. Includes FATF compliance data and suspicious transaction monitoring.", dataTypes: JSON.stringify(["Sanctions lists","PEP database","Suspicious transaction reports","AML flags","Shell company alerts"]), accessLevel: "partial", url: "https://sbp.org.pk", recordsEstimated: "Classified", lastUpdated: "2024-02", integrationStatus: "planned", keyFields: JSON.stringify(["name","cnic","account_details","pep_status","sanction_reason"]), notes: "PEP list and sanctions data partially public." },
+    { name: "Development Authorities Budget Tracker - PSDP", acronym: "PSDP", category: "procurement", organization: "Planning Commission of Pakistan", description: "Public Sector Development Programme tracking all federal development projects, funds released, and expenditure. Detects fund diversion at district level.", dataTypes: JSON.stringify(["Development projects","Funds released","Expenditure","Implementing agencies","District allocations"]), accessLevel: "public", url: "https://pc.gov.pk", recordsEstimated: "10,000+ active projects", lastUpdated: "2024-02", integrationStatus: "integrated", keyFields: JSON.stringify(["project_id","district","approved_cost","released_amount","expenditure","status"]), notes: "Fully public PSDP data. Cross-referencing fund releases vs. contracts reveals suspicious patterns." },
+    { name: "Federal Investigation Agency - Financial Crimes", acronym: "FIA", category: "law_enforcement", organization: "Federal Investigation Agency", description: "FIA cybercrime, financial crime, and human trafficking case records. Includes IBOS immigration data for tracking asset movement.", dataTypes: JSON.stringify(["Case records","Proclaimed offenders","Immigration data","Cybercrime reports","Hawala busts"]), accessLevel: "partial", url: "https://fia.gov.pk", recordsEstimated: "Classified", lastUpdated: "2024-01", integrationStatus: "manual", keyFields: JSON.stringify(["accused_cnic","case_type","offense","status","travel_history"]), notes: "Publicly wanted lists available. Immigration data critical for tracking offshore assets." },
+    { name: "Sindh Revenue Board - Procurement Database", acronym: "SPPRA", category: "procurement", organization: "Sindh Public Procurement Regulatory Authority", description: "Sindh government procurement contracts and tenders. Separate from federal PPRA, covers all provincial Sindh contracts.", dataTypes: JSON.stringify(["Sindh contracts","Tender awards","Vendor lists","Project values","Ministry allocations"]), accessLevel: "public", url: "https://sppra.gos.pk", recordsEstimated: "100,000+ contracts", lastUpdated: "2024-01", integrationStatus: "integrated", keyFields: JSON.stringify(["contract_id","department","vendor_ntn","value","award_date"]), notes: "Sindh-specific procurement data. Key for PPP government contract analysis." },
+    { name: "KPK Public Procurement Regulatory Authority", acronym: "KPPRA", category: "procurement", organization: "Government of KPK", description: "Khyber Pakhtunkhwa government procurement contracts. Covers all KPK provincial contracts including post-18th amendment devolved sectors.", dataTypes: JSON.stringify(["KPK contracts","Infrastructure tenders","Health/education procurement","Vendor data","Award dates"]), accessLevel: "public", url: "https://kppra.gov.pk", recordsEstimated: "80,000+ contracts", lastUpdated: "2024-01", integrationStatus: "integrated", keyFields: JSON.stringify(["contract_id","procuring_entity","vendor_ntn","estimated_cost","actual_award"]), notes: "KPK procurement is relatively transparent due to reform efforts. Still shows political connection patterns." },
+    { name: "Directorate General of Immigration & Passports", acronym: "DGI", category: "financial", organization: "Ministry of Interior", description: "Passport issuance and travel history records. Tracks when officials travel to offshore financial centers correlating with suspicious fund movements.", dataTypes: JSON.stringify(["Passport records","Travel history","Entry/exit stamps","Visa data","Dual nationality flags"]), accessLevel: "restricted", url: "https://dgip.gov.pk", recordsEstimated: "25 million+ passports", lastUpdated: "2024-01", integrationStatus: "manual", keyFields: JSON.stringify(["passport_number","cnic","travel_dates","destination","dual_nationality"]), notes: "Restricted access. Travel to UAE, UK, Switzerland by politicians during asset declaration periods is flagged." },
+    { name: "Balochistan Revenue Authority - Land & Contract Registry", acronym: "BRA", category: "land", organization: "Government of Balochistan", description: "Balochistan land records and provincial procurement. Important for detecting tribal chief land grabs and CPEC contract patterns linked to politicians.", dataTypes: JSON.stringify(["Land records","Tribal ownership","Provincial contracts","CPEC related awards","Mining leases"]), accessLevel: "partial", url: null, recordsEstimated: "8 million+ records", lastUpdated: "2023-06", integrationStatus: "manual", keyFields: JSON.stringify(["owner_cnic","district","land_type","contract_value","award_year"]), notes: "Poorly digitized. Critical for Balochistan corruption patterns especially around CPEC and mining." },
   ];
 
   const insertedDbs = await db.insert(publicDatabasesTable).values(databases).returning();
   console.log(`Inserted ${insertedDbs.length} database records`);
 
-  const buildConnections = (name: string, id: number, companies: string[], relatives: string[], districts: string[]) => {
-    const nodes: Array<{ id: string; label: string; type: string; riskScore?: number; value?: string }> = [
-      { id: `official-${id}`, label: name, type: "official", riskScore: 0 },
-    ];
-    const edges: Array<{ source: string; target: string; label: string; suspicious: boolean }> = [];
-
-    companies.forEach((c, i) => {
-      nodes.push({ id: `company-${id}-${i}`, label: c, type: "company", value: `PKR ${(Math.random() * 500 + 50).toFixed(0)}M` });
-      edges.push({ source: `official-${id}`, target: `company-${id}-${i}`, label: "Director", suspicious: i === 0 });
-    });
-
-    relatives.forEach((r, i) => {
-      nodes.push({ id: `relative-${id}-${i}`, label: r, type: "relative" });
-      edges.push({ source: `official-${id}`, target: `relative-${id}-${i}`, label: "Relative", suspicious: false });
-      if (companies[i]) {
-        nodes.push({ id: `contract-${id}-${i}`, label: `Contract #PK-${id}${i}`, type: "contract", value: `PKR ${(Math.random() * 200 + 20).toFixed(0)}M` });
-        edges.push({ source: `relative-${id}-${i}`, target: `company-${id}-${i}`, label: "Shareholder", suspicious: true });
-        edges.push({ source: `company-${id}-${i}`, target: `contract-${id}-${i}`, label: "Won Contract", suspicious: true });
-      }
-    });
-
-    districts.forEach((d, i) => {
-      nodes.push({ id: `district-${id}-${i}`, label: d, type: "district" });
-      edges.push({ source: `official-${id}`, target: `district-${id}-${i}`, label: "Directed Funds", suspicious: true });
-    });
-
-    return { nodes, edges };
-  };
-
+  // --- OFFICIALS (25 officials, all major parties) ---
   const officials = [
+    // PML-N
     {
-      name: "Malik Asghar Hussain",
-      cnicPartial: "35202-XXXXX-1",
-      position: "MNA - National Assembly",
-      party: "PML-N",
-      province: "Punjab",
-      constituency: "NA-73 Sialkot",
-      riskScore: 87.4,
-      riskTrend: "rising",
-      flagCount: 14,
-      assetsDeclared: "PKR 320 Million",
-      lastUpdated: "2024-02-15",
-      companiesJson: JSON.stringify([
-        { companyName: "Hussain Steel Mills Pvt Ltd", secp_number: "SECP-0047823", relationship: "Director", directorship: true, contractsValue: "PKR 847M" },
-        { companyName: "Al-Hussain Construction Co.", secp_number: "SECP-0092341", relationship: "Beneficial Owner via spouse", directorship: false, contractsValue: "PKR 234M" },
-      ]),
-      contractsJson: JSON.stringify([
-        { contractId: "PPRA-2023-0472", projectName: "Sialkot Bypass Road Phase II", amount: "PKR 1.2B", awardedTo: "Hussain Steel Mills Pvt Ltd", connection: "Direct company ownership", year: 2023, source: "PPRA" },
-        { contractId: "PPRA-2022-1891", projectName: "Rural Water Supply Scheme Daska", amount: "PKR 340M", awardedTo: "Al-Hussain Construction Co.", connection: "Spouse is director", year: 2022, source: "PPRA" },
-      ]),
-      relativesJson: JSON.stringify([
-        { name: "Asma Hussain (Wife)", relationship: "Spouse", companies: ["Al-Hussain Construction Co."], contracts: 3 },
-        { name: "Usman Hussain (Brother)", relationship: "Sibling", companies: ["Hussain Steel Mills Pvt Ltd", "GreenPak Agro"], contracts: 5 },
-      ]),
-      fundingJson: JSON.stringify([
-        { district: "Sialkot", amount: "PKR 3.4B", year: 2023, contractsBack: 7, suspiciousLinks: true },
-        { district: "Gujranwala", amount: "PKR 1.8B", year: 2022, contractsBack: 3, suspiciousLinks: true },
-      ]),
-      riskFactorsJson: JSON.stringify([
-        { factor: "Circular contracting via relatives", weight: 28.5, description: "Spouse and brother received contracts in districts where official directed public funds", evidenceLevel: "high" },
-        { factor: "Asset-income mismatch (ECP vs FBR)", weight: 22.1, description: "Declared assets PKR 320M vs estimated income PKR 45M over 8 years in politics", evidenceLevel: "high" },
-        { factor: "SECP company linked to PPRA contracts", weight: 18.3, description: "Directly owned company received government contracts during tenure", evidenceLevel: "high" },
-        { factor: "Undisclosed land holdings", weight: 12.8, description: "Punjab Zameen records show 4 properties not in ECP declaration", evidenceLevel: "medium" },
-        { factor: "Relative shell company patterns", weight: 5.7, description: "Brother's company shows minimal operations but multiple contract wins", evidenceLevel: "medium" },
-      ]),
-      connectionsJson: JSON.stringify(buildConnections("Malik Asghar Hussain", 1, ["Hussain Steel Mills", "Al-Hussain Construction"], ["Asma Hussain", "Usman Hussain"], ["Sialkot", "Gujranwala"])),
+      name: "Malik Asghar Hussain", cnicPartial: "35202-XXXXX-1", position: "MNA - National Assembly", party: "PML-N", province: "Punjab", constituency: "NA-73 Sialkot", riskScore: 87.4, riskTrend: "rising", flagCount: 14, assetsDeclared: "PKR 320 Million", lastUpdated: "2024-02-15",
+      companiesJson: JSON.stringify([{ companyName: "Hussain Steel Mills Pvt Ltd", secp_number: "SECP-0047823", relationship: "Director", directorship: true, contractsValue: "PKR 847M" }, { companyName: "Al-Hussain Construction Co.", secp_number: "SECP-0092341", relationship: "Beneficial Owner via spouse", directorship: false, contractsValue: "PKR 234M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2023-0472", projectName: "Sialkot Bypass Road Phase II", amount: "PKR 1.2B", awardedTo: "Hussain Steel Mills Pvt Ltd", connection: "Direct company ownership", year: 2023, source: "PPRA" }, { contractId: "PPRA-2022-1891", projectName: "Rural Water Supply Scheme Daska", amount: "PKR 340M", awardedTo: "Al-Hussain Construction Co.", connection: "Spouse is director", year: 2022, source: "PPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Asma Hussain (Wife)", relationship: "Spouse", companies: ["Al-Hussain Construction Co."], contracts: 3 }, { name: "Usman Hussain (Brother)", relationship: "Sibling", companies: ["Hussain Steel Mills Pvt Ltd"], contracts: 5 }]),
+      fundingJson: JSON.stringify([{ district: "Sialkot", amount: "PKR 3.4B", year: 2023, contractsBack: 7, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Circular contracting via relatives", weight: 28.5, description: "Spouse and brother received contracts in districts where official directed public funds", evidenceLevel: "high" }, { factor: "Asset-income mismatch (ECP vs FBR)", weight: 22.1, description: "Declared assets PKR 320M vs estimated income PKR 45M over 8 years in politics", evidenceLevel: "high" }, { factor: "SECP company linked to PPRA contracts", weight: 18.3, description: "Directly owned company received government contracts during tenure", evidenceLevel: "high" }, { factor: "Undisclosed land holdings", weight: 12.8, description: "Punjab Zameen records show 4 properties not in ECP declaration", evidenceLevel: "medium" }, { factor: "Relative shell company patterns", weight: 5.7, description: "Brother's company shows minimal operations but multiple contract wins", evidenceLevel: "medium" }]),
+      connectionsJson: JSON.stringify(buildConnections("Malik Asghar Hussain", 1, ["Hussain Steel Mills", "Al-Hussain Const."], ["Asma Hussain", "Usman Hussain"], ["Sialkot", "Gujranwala"])),
     },
     {
-      name: "Bibi Rubina Akhtar",
-      cnicPartial: "44303-XXXXX-2",
-      position: "MPA - Sindh Assembly",
-      party: "PPP",
-      province: "Sindh",
-      constituency: "PS-52 Hyderabad",
-      riskScore: 79.2,
-      riskTrend: "stable",
-      flagCount: 11,
-      assetsDeclared: "PKR 180 Million",
-      lastUpdated: "2024-02-10",
-      companiesJson: JSON.stringify([
-        { companyName: "Indus Trade International", secp_number: "SECP-0038291", relationship: "Via brother-in-law", directorship: false, contractsValue: "PKR 567M" },
-      ]),
-      contractsJson: JSON.stringify([
-        { contractId: "SPPRA-2023-0892", projectName: "Hyderabad Drainage System Upgrade", amount: "PKR 890M", awardedTo: "Indus Trade International", connection: "Brother-in-law is director", year: 2023, source: "SPPRA" },
-        { contractId: "SPPRA-2022-0341", projectName: "Rural School Construction PS-52", amount: "PKR 230M", awardedTo: "Indus Trade International", connection: "Brother-in-law is director", year: 2022, source: "SPPRA" },
-      ]),
-      relativesJson: JSON.stringify([
-        { name: "Tariq Mehmood (Brother-in-law)", relationship: "In-law", companies: ["Indus Trade International"], contracts: 6 },
-      ]),
-      fundingJson: JSON.stringify([
-        { district: "Hyderabad", amount: "PKR 2.1B", year: 2023, contractsBack: 4, suspiciousLinks: true },
-      ]),
-      riskFactorsJson: JSON.stringify([
-        { factor: "Repeated contract to single relative-linked company", weight: 31.2, description: "Brother-in-law's company won 6 consecutive contracts in her constituency", evidenceLevel: "high" },
-        { factor: "Asset declaration anomaly", weight: 20.8, description: "Declared PKR 180M with primary income source listed as farming", evidenceLevel: "high" },
-        { factor: "No competitive bidding evidence", weight: 15.4, description: "Contracts awarded via single-source procurement outside SPPRA rules", evidenceLevel: "medium" },
-        { factor: "Ghost employee flags in local scheme", weight: 12.8, description: "School construction project had payroll entries for deceased workers", evidenceLevel: "medium" },
-      ]),
-      connectionsJson: JSON.stringify(buildConnections("Bibi Rubina Akhtar", 2, ["Indus Trade International"], ["Tariq Mehmood"], ["Hyderabad"])),
+      name: "Chaudhry Nawaz Baig", cnicPartial: "35401-XXXXX-5", position: "Senator", party: "PML-N", province: "Punjab", constituency: "Senate Seat - Punjab", riskScore: 65.3, riskTrend: "falling", flagCount: 7, assetsDeclared: "PKR 540 Million", lastUpdated: "2024-02-01",
+      companiesJson: JSON.stringify([{ companyName: "Baig Sugar Mills Ltd", secp_number: "SECP-0009871", relationship: "Chairman", directorship: true, contractsValue: "PKR 1.2B" }, { companyName: "Baig Transport Pvt Ltd", secp_number: "SECP-0043210", relationship: "Director", directorship: true, contractsValue: "PKR 234M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2022-3421", projectName: "Government Sugar Procurement 2022", amount: "PKR 1.2B", awardedTo: "Baig Sugar Mills Ltd", connection: "Direct ownership as chairman", year: 2022, source: "PPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Shahid Baig (Nephew)", relationship: "Nephew", companies: ["Baig Transport Pvt Ltd"], contracts: 2 }]),
+      fundingJson: JSON.stringify([{ district: "Faisalabad", amount: "PKR 890M", year: 2022, contractsBack: 2, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Senator voting on sugar policy while owning sugar mills", weight: 30.1, description: "Voted on sugar export policy while being chairman of major sugar conglomerate", evidenceLevel: "high" }, { factor: "Government procurement to owned company", weight: 22.3, description: "Public sugar procurement went to personally owned company", evidenceLevel: "high" }, { factor: "Asset declaration gaps", weight: 12.9, description: "3 offshore business partnerships not disclosed in ECP declaration", evidenceLevel: "medium" }]),
+      connectionsJson: JSON.stringify(buildConnections("Chaudhry Nawaz Baig", 4, ["Baig Sugar Mills", "Baig Transport"], ["Shahid Baig"], ["Faisalabad"])),
     },
     {
-      name: "Fazal ur Rahman Qureshi",
-      cnicPartial: "17301-XXXXX-3",
-      position: "MNA - National Assembly",
-      party: "PTI",
-      province: "KPK",
-      constituency: "NA-19 Peshawar",
-      riskScore: 71.8,
-      riskTrend: "rising",
-      flagCount: 9,
-      assetsDeclared: "PKR 95 Million",
-      lastUpdated: "2024-01-28",
-      companiesJson: JSON.stringify([
-        { companyName: "KPK Construction Consortium", secp_number: "SECP-0071234", relationship: "Son is director", directorship: false, contractsValue: "PKR 412M" },
-      ]),
-      contractsJson: JSON.stringify([
-        { contractId: "KPPRA-2023-1203", projectName: "Peshawar Ring Road Sub-section 3", amount: "PKR 412M", awardedTo: "KPK Construction Consortium", connection: "Son Bilal Qureshi is director", year: 2023, source: "KPPRA" },
-      ]),
-      relativesJson: JSON.stringify([
-        { name: "Bilal Qureshi (Son)", relationship: "Child", companies: ["KPK Construction Consortium", "Qureshi Logistics Pvt Ltd"], contracts: 4 },
-      ]),
-      fundingJson: JSON.stringify([
-        { district: "Peshawar", amount: "PKR 1.9B", year: 2023, contractsBack: 3, suspiciousLinks: true },
-      ]),
-      riskFactorsJson: JSON.stringify([
-        { factor: "Son's company awarded constituency contracts", weight: 27.4, description: "Son registered company 2 months before father's election, then won major contracts", evidenceLevel: "high" },
-        { factor: "SECP registration timing suspicious", weight: 19.6, description: "KPK Construction Consortium registered 58 days before NA-19 election date", evidenceLevel: "high" },
-        { factor: "Asset underreporting indicators", weight: 14.8, description: "FBR active taxpayer list shows minimal business income vs. declared assets", evidenceLevel: "medium" },
-        { factor: "Single supplier pattern", weight: 10.0, description: "Same company bid and won 4 consecutive KPPRA tenders", evidenceLevel: "low" },
-      ]),
+      name: "Rana Javed Iqbal", cnicPartial: "35301-XXXXX-3", position: "MNA - National Assembly", party: "PML-N", province: "Punjab", constituency: "NA-88 Hafizabad", riskScore: 51.2, riskTrend: "stable", flagCount: 5, assetsDeclared: "PKR 220 Million", lastUpdated: "2024-01-20",
+      companiesJson: JSON.stringify([{ companyName: "Rana Rice Mills Ltd", secp_number: "SECP-0073421", relationship: "Owner", directorship: true, contractsValue: "PKR 180M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2023-1120", projectName: "Government Wheat Procurement Hafizabad", amount: "PKR 180M", awardedTo: "Rana Rice Mills Ltd", connection: "Direct ownership", year: 2023, source: "Punjab Dept of Agriculture" }]),
+      relativesJson: JSON.stringify([{ name: "Kamran Rana (Son)", relationship: "Child", companies: ["KR Logistics"], contracts: 1 }]),
+      fundingJson: JSON.stringify([{ district: "Hafizabad", amount: "PKR 670M", year: 2023, contractsBack: 2, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Agricultural subsidy to self-owned business", weight: 21.3, description: "MP's own rice mill received government grain procurement contracts", evidenceLevel: "medium" }, { factor: "Son's logistics company transport contracts", weight: 18.1, description: "Son's logistics company got transport contracts for same procurement", evidenceLevel: "medium" }, { factor: "ECP asset declaration inconsistencies", weight: 11.8, description: "Rice mill valuation appears below market rate in declaration", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Rana Javed Iqbal", 9, ["Rana Rice Mills"], ["Kamran Rana"], ["Hafizabad"])),
+    },
+    {
+      name: "Maryam Aurangzeb", cnicPartial: "35202-XXXXX-8", position: "MNA - National Assembly", party: "PML-N", province: "Punjab", constituency: "NA-119 Lahore", riskScore: 22.4, riskTrend: "stable", flagCount: 1, assetsDeclared: "PKR 42 Million", lastUpdated: "2024-02-01",
+      companiesJson: JSON.stringify([]),
+      contractsJson: JSON.stringify([]),
+      relativesJson: JSON.stringify([]),
+      fundingJson: JSON.stringify([{ district: "Lahore", amount: "PKR 320M", year: 2023, contractsBack: 0, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Minor ECP form incompleteness", weight: 22.4, description: "Some investment accounts not fully itemized in declaration", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Maryam Aurangzeb", 10, [], [], ["Lahore"])),
+    },
+    // PPP
+    {
+      name: "Bibi Rubina Akhtar", cnicPartial: "44303-XXXXX-2", position: "MPA - Sindh Assembly", party: "PPP", province: "Sindh", constituency: "PS-52 Hyderabad", riskScore: 79.2, riskTrend: "stable", flagCount: 11, assetsDeclared: "PKR 180 Million", lastUpdated: "2024-02-10",
+      companiesJson: JSON.stringify([{ companyName: "Indus Trade International", secp_number: "SECP-0038291", relationship: "Via brother-in-law", directorship: false, contractsValue: "PKR 567M" }]),
+      contractsJson: JSON.stringify([{ contractId: "SPPRA-2023-0892", projectName: "Hyderabad Drainage System Upgrade", amount: "PKR 890M", awardedTo: "Indus Trade International", connection: "Brother-in-law is director", year: 2023, source: "SPPRA" }, { contractId: "SPPRA-2022-0341", projectName: "Rural School Construction PS-52", amount: "PKR 230M", awardedTo: "Indus Trade International", connection: "Brother-in-law is director", year: 2022, source: "SPPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Tariq Mehmood (Brother-in-law)", relationship: "In-law", companies: ["Indus Trade International"], contracts: 6 }]),
+      fundingJson: JSON.stringify([{ district: "Hyderabad", amount: "PKR 2.1B", year: 2023, contractsBack: 4, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Repeated contract to single relative-linked company", weight: 31.2, description: "Brother-in-law's company won 6 consecutive contracts in constituency", evidenceLevel: "high" }, { factor: "Asset declaration anomaly", weight: 20.8, description: "Declared PKR 180M with primary income source listed as farming", evidenceLevel: "high" }, { factor: "No competitive bidding evidence", weight: 15.4, description: "Contracts awarded via single-source procurement", evidenceLevel: "medium" }, { factor: "Ghost employee flags in local scheme", weight: 12.8, description: "School construction project had payroll entries for deceased workers", evidenceLevel: "medium" }]),
+      connectionsJson: JSON.stringify(buildConnections("Bibi Rubina Akhtar", 2, ["Indus Trade Intl"], ["Tariq Mehmood"], ["Hyderabad"])),
+    },
+    {
+      name: "Ghulam Mustafa Khar", cnicPartial: "32104-XXXXX-7", position: "MPA - Punjab Assembly", party: "PPP", province: "Punjab", constituency: "PP-208 Muzaffargarh", riskScore: 92.1, riskTrend: "rising", flagCount: 17, assetsDeclared: "PKR 760 Million", lastUpdated: "2024-02-18",
+      companiesJson: JSON.stringify([{ companyName: "Khar Petroleum Ltd", secp_number: "SECP-0012903", relationship: "Director", directorship: true, contractsValue: "PKR 2.1B" }, { companyName: "South Punjab Contractors", secp_number: "SECP-0034521", relationship: "Director via nominee", directorship: false, contractsValue: "PKR 890M" }, { companyName: "Muzaffargarh Brick Kilns", secp_number: "SECP-0091234", relationship: "Beneficial Owner", directorship: false, contractsValue: "PKR 120M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2023-0219", projectName: "South Punjab Motorway Service Areas", amount: "PKR 2.1B", awardedTo: "Khar Petroleum Ltd", connection: "Direct director and major shareholder", year: 2023, source: "NHA/PPRA" }, { contractId: "PPRA-2022-1567", projectName: "Muzaffargarh District Hospital Expansion", amount: "PKR 890M", awardedTo: "South Punjab Contractors", connection: "Nominee director linked via law firm", year: 2022, source: "PPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Ahmad Khar (Son)", relationship: "Child", companies: ["Khar Petroleum Ltd","Khar Holdings"], contracts: 8 }, { name: "Mehmood Khar (Brother)", relationship: "Sibling", companies: ["South Punjab Contractors","Muzaffargarh Brick Kilns"], contracts: 5 }]),
+      fundingJson: JSON.stringify([{ district: "Muzaffargarh", amount: "PKR 4.2B", year: 2023, contractsBack: 9, suspiciousLinks: true }, { district: "DG Khan", amount: "PKR 2.8B", year: 2022, contractsBack: 5, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Multi-layered circular contracting network", weight: 35.8, description: "Son, daughter, and brother all have companies receiving government contracts in districts he controls", evidenceLevel: "high" }, { factor: "Extreme asset-income gap", weight: 28.4, description: "Declared PKR 760M in assets vs PKR 67M estimated legitimate income over 15 years", evidenceLevel: "high" }, { factor: "Nominee director structures (SECP)", weight: 18.9, description: "Uses law firm nominees to obscure directorship in SECP filings", evidenceLevel: "high" }, { factor: "Cross-district fund diversion", weight: 9.0, description: "Funds allocated to multiple districts result in contracts to connected entities", evidenceLevel: "high" }]),
+      connectionsJson: JSON.stringify(buildConnections("Ghulam Mustafa Khar", 7, ["Khar Petroleum Ltd","S.Punjab Contractors","MGB Brick Kilns"], ["Ahmad Khar","Mehmood Khar"], ["Muzaffargarh","DG Khan"])),
+    },
+    {
+      name: "Asif Ali Zardari Jr.", cnicPartial: "42000-XXXXX-9", position: "MNA - National Assembly", party: "PPP", province: "Sindh", constituency: "NA-213 Nawabshah", riskScore: 61.8, riskTrend: "rising", flagCount: 8, assetsDeclared: "PKR 890 Million", lastUpdated: "2024-02-05",
+      companiesJson: JSON.stringify([{ companyName: "Zardari Group Holdings", secp_number: "SECP-0002341", relationship: "Beneficial Owner", directorship: false, contractsValue: "PKR 3.4B" }]),
+      contractsJson: JSON.stringify([{ contractId: "SPPRA-2023-0102", projectName: "Nawabshah Urban Development Package", amount: "PKR 1.2B", awardedTo: "Zardari Group Holdings subsidiaries", connection: "Beneficial ownership chain", year: 2023, source: "SPPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Faryal Talpur (Aunt)", relationship: "Family", companies: ["Zardari Group Holdings"], contracts: 12 }]),
+      fundingJson: JSON.stringify([{ district: "Nawabshah", amount: "PKR 5.1B", year: 2023, contractsBack: 6, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Beneficial ownership of major conglomerate", weight: 28.3, description: "Zardari Group beneficial ownership not fully disclosed in ECP filing", evidenceLevel: "high" }, { factor: "Family political network contract concentration", weight: 22.1, description: "PPP-connected constituencies show 78% higher win rate for Zardari-linked entities", evidenceLevel: "medium" }, { factor: "Offshore asset links (Panama leaks residual)", weight: 11.4, description: "Historical Panama Papers references require updated verification", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Asif Ali Zardari Jr.", 11, ["Zardari Group Holdings"], ["Faryal Talpur"], ["Nawabshah","Larkana"])),
+    },
+    // PTI
+    {
+      name: "Fazal ur Rahman Qureshi", cnicPartial: "17301-XXXXX-3", position: "MNA - National Assembly", party: "PTI", province: "KPK", constituency: "NA-19 Peshawar", riskScore: 71.8, riskTrend: "rising", flagCount: 9, assetsDeclared: "PKR 95 Million", lastUpdated: "2024-01-28",
+      companiesJson: JSON.stringify([{ companyName: "KPK Construction Consortium", secp_number: "SECP-0071234", relationship: "Son is director", directorship: false, contractsValue: "PKR 412M" }]),
+      contractsJson: JSON.stringify([{ contractId: "KPPRA-2023-1203", projectName: "Peshawar Ring Road Sub-section 3", amount: "PKR 412M", awardedTo: "KPK Construction Consortium", connection: "Son Bilal Qureshi is director", year: 2023, source: "KPPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Bilal Qureshi (Son)", relationship: "Child", companies: ["KPK Construction Consortium","Qureshi Logistics"], contracts: 4 }]),
+      fundingJson: JSON.stringify([{ district: "Peshawar", amount: "PKR 1.9B", year: 2023, contractsBack: 3, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Son's company awarded constituency contracts", weight: 27.4, description: "Son registered company 2 months before father's election, then won major contracts", evidenceLevel: "high" }, { factor: "SECP registration timing suspicious", weight: 19.6, description: "KPK Construction Consortium registered 58 days before NA-19 election date", evidenceLevel: "high" }, { factor: "Asset underreporting indicators", weight: 14.8, description: "FBR active taxpayer list shows minimal business income vs. declared assets", evidenceLevel: "medium" }]),
       connectionsJson: JSON.stringify(buildConnections("Fazal ur Rahman Qureshi", 3, ["KPK Construction Consortium"], ["Bilal Qureshi"], ["Peshawar"])),
     },
     {
-      name: "Chaudhry Nawaz Baig",
-      cnicPartial: "35401-XXXXX-5",
-      position: "Senator",
-      party: "PML-N",
-      province: "Punjab",
-      constituency: "Senate Seat - Punjab",
-      riskScore: 65.3,
-      riskTrend: "falling",
-      flagCount: 7,
-      assetsDeclared: "PKR 540 Million",
-      lastUpdated: "2024-02-01",
-      companiesJson: JSON.stringify([
-        { companyName: "Baig Sugar Mills Ltd", secp_number: "SECP-0009871", relationship: "Chairman", directorship: true, contractsValue: "PKR 1.2B" },
-        { companyName: "Baig Transport Pvt Ltd", secp_number: "SECP-0043210", relationship: "Director", directorship: true, contractsValue: "PKR 234M" },
-      ]),
-      contractsJson: JSON.stringify([
-        { contractId: "PPRA-2022-3421", projectName: "Government Sugar Procurement 2022", amount: "PKR 1.2B", awardedTo: "Baig Sugar Mills Ltd", connection: "Direct ownership as chairman", year: 2022, source: "PPRA" },
-      ]),
-      relativesJson: JSON.stringify([
-        { name: "Shahid Baig (Nephew)", relationship: "Nephew", companies: ["Baig Transport Pvt Ltd"], contracts: 2 },
-      ]),
-      fundingJson: JSON.stringify([
-        { district: "Faisalabad", amount: "PKR 890M", year: 2022, contractsBack: 2, suspiciousLinks: false },
-      ]),
-      riskFactorsJson: JSON.stringify([
-        { factor: "Senator voting on sugar sector policy while owning sugar mills", weight: 30.1, description: "Voted on sugar export policy while being chairman of major sugar conglomerate", evidenceLevel: "high" },
-        { factor: "Government procurement to owned company", weight: 22.3, description: "Public sugar procurement went to personally owned company without disclosed conflict", evidenceLevel: "high" },
-        { factor: "Asset declaration completeness", weight: 12.9, description: "3 offshore business partnerships not disclosed in ECP declaration", evidenceLevel: "medium" },
-      ]),
-      connectionsJson: JSON.stringify(buildConnections("Chaudhry Nawaz Baig", 4, ["Baig Sugar Mills Ltd", "Baig Transport Pvt Ltd"], ["Shahid Baig"], ["Faisalabad"])),
+      name: "Sardar Abdul Qayyum Niazi", cnicPartial: "38403-XXXXX-9", position: "Chief Minister", party: "PTI", province: "Punjab", constituency: "CM Punjab", riskScore: 58.7, riskTrend: "stable", flagCount: 6, assetsDeclared: "PKR 210 Million", lastUpdated: "2024-02-12",
+      companiesJson: JSON.stringify([{ companyName: "Niazi Agro Farms", secp_number: "SECP-0087654", relationship: "Owner", directorship: true, contractsValue: "PKR 145M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2023-5610", projectName: "Agricultural Subsidy Distribution Punjab", amount: "PKR 145M", awardedTo: "Niazi Agro Farms (via subsidiary)", connection: "Agricultural subsidy routed through owned farm", year: 2023, source: "Agriculture Dept" }]),
+      relativesJson: JSON.stringify([{ name: "Imtiaz Niazi (Cousin)", relationship: "Cousin", companies: ["Niazi Real Estate","PakBuild Contractors"], contracts: 3 }]),
+      fundingJson: JSON.stringify([{ district: "Rawalpindi", amount: "PKR 2.4B", year: 2023, contractsBack: 2, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Agricultural subsidy to self-owned entity", weight: 22.4, description: "Government agricultural subsidies routed through entities with links to CM", evidenceLevel: "medium" }, { factor: "Cousin company in provincial contracts", weight: 18.9, description: "Cousin's construction company received 3 provincial contracts during CM tenure", evidenceLevel: "medium" }, { factor: "Land record anomalies", weight: 17.4, description: "Punjab Zameen records show 2 large agricultural plots not in declaration", evidenceLevel: "medium" }]),
+      connectionsJson: JSON.stringify(buildConnections("Sardar Abdul Qayyum Niazi", 5, ["Niazi Agro Farms"], ["Imtiaz Niazi"], ["Rawalpindi","Lahore"])),
     },
     {
-      name: "Sardar Abdul Qayyum Niazi",
-      cnicPartial: "38403-XXXXX-9",
-      position: "Chief Minister",
-      party: "PTI",
-      province: "Punjab",
-      constituency: "CM Punjab",
-      riskScore: 58.7,
-      riskTrend: "stable",
-      flagCount: 6,
-      assetsDeclared: "PKR 210 Million",
-      lastUpdated: "2024-02-12",
-      companiesJson: JSON.stringify([
-        { companyName: "Niazi Agro Farms", secp_number: "SECP-0087654", relationship: "Owner", directorship: true, contractsValue: "PKR 145M" },
-      ]),
-      contractsJson: JSON.stringify([
-        { contractId: "PPRA-2023-5610", projectName: "Agricultural Subsidy Distribution Punjab", amount: "PKR 145M", awardedTo: "Niazi Agro Farms (indirectly via subsidiary)", connection: "Agricultural subsidy routed through owned farm", year: 2023, source: "Agriculture Dept" },
-      ]),
-      relativesJson: JSON.stringify([
-        { name: "Imtiaz Niazi (Cousin)", relationship: "Cousin", companies: ["Niazi Real Estate", "PakBuild Contractors"], contracts: 3 },
-      ]),
-      fundingJson: JSON.stringify([
-        { district: "Rawalpindi", amount: "PKR 2.4B", year: 2023, contractsBack: 2, suspiciousLinks: false },
-        { district: "Lahore", amount: "PKR 3.1B", year: 2023, contractsBack: 1, suspiciousLinks: false },
-      ]),
-      riskFactorsJson: JSON.stringify([
-        { factor: "Agricultural subsidy to self-owned entity", weight: 22.4, description: "Government agricultural subsidies routed through entities with links to CM", evidenceLevel: "medium" },
-        { factor: "Cousin company in provincial contracts", weight: 18.9, description: "Cousin's construction company received 3 provincial contracts during CM tenure", evidenceLevel: "medium" },
-        { factor: "Land record anomalies", weight: 17.4, description: "Punjab Zameen records show 2 large agricultural plots not in declaration", evidenceLevel: "medium" },
-      ]),
-      connectionsJson: JSON.stringify(buildConnections("Sardar Abdul Qayyum Niazi", 5, ["Niazi Agro Farms"], ["Imtiaz Niazi"], ["Rawalpindi", "Lahore"])),
+      name: "Khurram Nawaz Gandapur", cnicPartial: "22405-XXXXX-1", position: "MNA - National Assembly", party: "PTI", province: "KPK", constituency: "NA-38 Dera Ismail Khan", riskScore: 35.6, riskTrend: "falling", flagCount: 3, assetsDeclared: "PKR 48 Million", lastUpdated: "2024-01-15",
+      companiesJson: JSON.stringify([]),
+      contractsJson: JSON.stringify([]),
+      relativesJson: JSON.stringify([{ name: "Ali Khan Gandapur (Brother)", relationship: "Sibling", companies: ["DI Khan Traders"], contracts: 1 }]),
+      fundingJson: JSON.stringify([{ district: "Dera Ismail Khan", amount: "PKR 780M", year: 2023, contractsBack: 1, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Brother has minor contract in constituency", weight: 12.3, description: "Brother's small trading company received one supply contract", evidenceLevel: "low" }, { factor: "Asset declaration minor gaps", weight: 13.3, description: "Some agricultural land not clearly categorized", evidenceLevel: "low" }, { factor: "Family political network", weight: 10.0, description: "Multiple family members in different levels of government", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Khurram Nawaz Gandapur", 8, [], ["Ali Khan Gandapur"], ["Dera Ismail Khan"])),
     },
     {
-      name: "Dr. Saima Waqar",
-      cnicPartial: "42201-XXXXX-4",
-      position: "MNA - National Assembly",
-      party: "MQM-P",
-      province: "Sindh",
-      constituency: "NA-240 Karachi East",
-      riskScore: 44.1,
-      riskTrend: "stable",
-      flagCount: 4,
-      assetsDeclared: "PKR 85 Million",
-      lastUpdated: "2024-02-08",
-      companiesJson: JSON.stringify([
-        { companyName: "Waqar Medical Centre Pvt Ltd", secp_number: "SECP-0065432", relationship: "Co-owner with husband", directorship: false, contractsValue: "PKR 23M" },
-      ]),
-      contractsJson: JSON.stringify([
-        { contractId: "SPPRA-2023-2190", projectName: "Free Medical Camp Services Karachi", amount: "PKR 23M", awardedTo: "Waqar Medical Centre", connection: "Husband co-owns medical center", year: 2023, source: "Sindh Health Dept" },
-      ]),
-      relativesJson: JSON.stringify([
-        { name: "Dr. Imran Waqar (Husband)", relationship: "Spouse", companies: ["Waqar Medical Centre Pvt Ltd"], contracts: 1 },
-      ]),
-      fundingJson: JSON.stringify([
-        { district: "Karachi", amount: "PKR 450M", year: 2023, contractsBack: 1, suspiciousLinks: false },
-      ]),
-      riskFactorsJson: JSON.stringify([
-        { factor: "Minor conflict of interest in healthcare contract", weight: 18.3, description: "Husband's company received small health services contract in her area", evidenceLevel: "low" },
-        { factor: "ECP declaration completeness", weight: 15.8, description: "Some investments not fully categorized in financial declaration", evidenceLevel: "low" },
-        { factor: "Business linkage transparency", weight: 10.0, description: "Medical center co-ownership not prominently declared in official profile", evidenceLevel: "low" },
-      ]),
+      name: "Omar Ayub Khan", cnicPartial: "37405-XXXXX-3", position: "Leader of Opposition - National Assembly", party: "PTI", province: "KPK", constituency: "NA-17 Haripur", riskScore: 44.2, riskTrend: "stable", flagCount: 4, assetsDeclared: "PKR 175 Million", lastUpdated: "2024-02-10",
+      companiesJson: JSON.stringify([{ companyName: "Ayub Khan Holdings", secp_number: "SECP-0031450", relationship: "Director", directorship: true, contractsValue: "PKR 0" }]),
+      contractsJson: JSON.stringify([]),
+      relativesJson: JSON.stringify([{ name: "Goharkhatoon Ayub (Sister)", relationship: "Sibling", companies: ["Khan Educational Trust"], contracts: 1 }]),
+      fundingJson: JSON.stringify([{ district: "Haripur", amount: "PKR 540M", year: 2022, contractsBack: 0, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Undisclosed foreign investments", weight: 18.2, description: "ECP declaration does not list previously reported UK property interests", evidenceLevel: "medium" }, { factor: "Family educational trust receives government grants", weight: 14.7, description: "Sister's educational trust received KPK government grants during his term as minister", evidenceLevel: "medium" }, { factor: "Asset growth rate anomaly", weight: 11.3, description: "Net assets grew 340% during minister tenure", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Omar Ayub Khan", 12, ["Ayub Khan Holdings"], ["Goharkhatoon Ayub"], ["Haripur"])),
+    },
+    // MQM-P
+    {
+      name: "Dr. Saima Waqar", cnicPartial: "42201-XXXXX-4", position: "MNA - National Assembly", party: "MQM-P", province: "Sindh", constituency: "NA-240 Karachi East", riskScore: 44.1, riskTrend: "stable", flagCount: 4, assetsDeclared: "PKR 85 Million", lastUpdated: "2024-02-08",
+      companiesJson: JSON.stringify([{ companyName: "Waqar Medical Centre Pvt Ltd", secp_number: "SECP-0065432", relationship: "Co-owner with husband", directorship: false, contractsValue: "PKR 23M" }]),
+      contractsJson: JSON.stringify([{ contractId: "SPPRA-2023-2190", projectName: "Free Medical Camp Services Karachi", amount: "PKR 23M", awardedTo: "Waqar Medical Centre", connection: "Husband co-owns medical center", year: 2023, source: "Sindh Health Dept" }]),
+      relativesJson: JSON.stringify([{ name: "Dr. Imran Waqar (Husband)", relationship: "Spouse", companies: ["Waqar Medical Centre Pvt Ltd"], contracts: 1 }]),
+      fundingJson: JSON.stringify([{ district: "Karachi", amount: "PKR 450M", year: 2023, contractsBack: 1, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Minor conflict of interest in healthcare contract", weight: 18.3, description: "Husband's company received small health services contract in her area", evidenceLevel: "low" }, { factor: "ECP declaration completeness", weight: 15.8, description: "Some investments not fully categorized", evidenceLevel: "low" }, { factor: "Business linkage transparency", weight: 10.0, description: "Medical center co-ownership not prominently declared", evidenceLevel: "low" }]),
       connectionsJson: JSON.stringify(buildConnections("Dr. Saima Waqar", 6, ["Waqar Medical Centre"], ["Dr. Imran Waqar"], ["Karachi"])),
     },
     {
-      name: "Ghulam Mustafa Khar",
-      cnicPartial: "32104-XXXXX-7",
-      position: "MPA - Punjab Assembly",
-      party: "PPP",
-      province: "Punjab",
-      constituency: "PP-208 Muzaffargarh",
-      riskScore: 92.1,
-      riskTrend: "rising",
-      flagCount: 17,
-      assetsDeclared: "PKR 760 Million",
-      lastUpdated: "2024-02-18",
-      companiesJson: JSON.stringify([
-        { companyName: "Khar Petroleum Ltd", secp_number: "SECP-0012903", relationship: "Director", directorship: true, contractsValue: "PKR 2.1B" },
-        { companyName: "South Punjab Contractors", secp_number: "SECP-0034521", relationship: "Director via nominee", directorship: false, contractsValue: "PKR 890M" },
-        { companyName: "Muzaffargarh Brick Kilns", secp_number: "SECP-0091234", relationship: "Beneficial Owner", directorship: false, contractsValue: "PKR 120M" },
-      ]),
-      contractsJson: JSON.stringify([
-        { contractId: "PPRA-2023-0219", projectName: "South Punjab Motorway Service Areas", amount: "PKR 2.1B", awardedTo: "Khar Petroleum Ltd", connection: "Direct director and major shareholder", year: 2023, source: "NHA/PPRA" },
-        { contractId: "PPRA-2022-1567", projectName: "Muzaffargarh District Hospital Expansion", amount: "PKR 890M", awardedTo: "South Punjab Contractors", connection: "Nominee director linked via law firm", year: 2022, source: "PPRA" },
-        { contractId: "PPRA-2021-4421", projectName: "Brick Supply for Govt Housing Scheme", amount: "PKR 120M", awardedTo: "Muzaffargarh Brick Kilns", connection: "Beneficial ownership via SECP", year: 2021, source: "Housing Dept" },
-      ]),
-      relativesJson: JSON.stringify([
-        { name: "Ahmad Khar (Son)", relationship: "Child", companies: ["Khar Petroleum Ltd", "Khar Holdings"], contracts: 8 },
-        { name: "Zainab Khar (Daughter)", relationship: "Child", companies: ["ZK Imports Pvt Ltd"], contracts: 2 },
-        { name: "Mehmood Khar (Brother)", relationship: "Sibling", companies: ["South Punjab Contractors", "Muzaffargarh Brick Kilns"], contracts: 5 },
-      ]),
-      fundingJson: JSON.stringify([
-        { district: "Muzaffargarh", amount: "PKR 4.2B", year: 2023, contractsBack: 9, suspiciousLinks: true },
-        { district: "DG Khan", amount: "PKR 2.8B", year: 2022, contractsBack: 5, suspiciousLinks: true },
-        { district: "Rajanpur", amount: "PKR 1.1B", year: 2022, contractsBack: 3, suspiciousLinks: true },
-      ]),
-      riskFactorsJson: JSON.stringify([
-        { factor: "Multi-layered circular contracting network", weight: 35.8, description: "Son, daughter, and brother all have companies receiving government contracts in districts he controls funding for", evidenceLevel: "high" },
-        { factor: "Extreme asset-income gap", weight: 28.4, description: "Declared PKR 760M in assets vs PKR 67M estimated legitimate income over 15 years", evidenceLevel: "high" },
-        { factor: "Nominee director structures (SECP)", weight: 18.9, description: "Uses law firm nominees to obscure directorship in SECP filings", evidenceLevel: "high" },
-        { factor: "Cross-district fund diversion", weight: 9.0, description: "Funds allocated to 3 districts all result in contracts to connected entities", evidenceLevel: "high" },
-      ]),
-      connectionsJson: JSON.stringify(buildConnections("Ghulam Mustafa Khar", 7, ["Khar Petroleum Ltd", "South Punjab Contractors", "Muzaffargarh Brick Kilns"], ["Ahmad Khar", "Mehmood Khar", "Zainab Khar"], ["Muzaffargarh", "DG Khan", "Rajanpur"])),
+      name: "Khalid Maqbool Siddiqui", cnicPartial: "42201-XXXXX-7", position: "MNA - National Assembly", party: "MQM-P", province: "Sindh", constituency: "NA-243 Karachi Central", riskScore: 38.5, riskTrend: "stable", flagCount: 3, assetsDeclared: "PKR 67 Million", lastUpdated: "2024-01-25",
+      companiesJson: JSON.stringify([{ companyName: "Karachi Tech Solutions", secp_number: "SECP-0074532", relationship: "Shareholder (12%)", directorship: false, contractsValue: "PKR 45M" }]),
+      contractsJson: JSON.stringify([{ contractId: "SPPRA-2022-3401", projectName: "Karachi Municipal IT Systems", amount: "PKR 45M", awardedTo: "Karachi Tech Solutions", connection: "Minor shareholder in winning company", year: 2022, source: "KMC" }]),
+      relativesJson: JSON.stringify([]),
+      fundingJson: JSON.stringify([{ district: "Karachi Central", amount: "PKR 380M", year: 2022, contractsBack: 0, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Minority shareholding in contract-winning company", weight: 22.3, description: "12% stake in IT firm that won municipal contract, not disclosed in ECP filing", evidenceLevel: "medium" }, { factor: "Declaration accuracy", weight: 16.2, description: "Share values reported at par not market value", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Khalid Maqbool Siddiqui", 13, ["Karachi Tech Solutions"], [], ["Karachi Central"])),
+    },
+    // JUI-F
+    {
+      name: "Maulana Asad Mehmood", cnicPartial: "21304-XXXXX-5", position: "MNA - National Assembly", party: "JUI-F", province: "KPK", constituency: "NA-24 Tank", riskScore: 68.4, riskTrend: "rising", flagCount: 8, assetsDeclared: "PKR 145 Million", lastUpdated: "2024-01-30",
+      companiesJson: JSON.stringify([{ companyName: "Al-Mehmood Madaris Trust", secp_number: "SECP-0034521", relationship: "Trustee", directorship: true, contractsValue: "PKR 230M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2022-4231", projectName: "Religious Education Infrastructure Grant", amount: "PKR 230M", awardedTo: "Al-Mehmood Madaris Trust", connection: "Official is trustee of receiving institution", year: 2022, source: "Ministry of Religious Affairs" }]),
+      relativesJson: JSON.stringify([{ name: "Zahid Mehmood (Brother)", relationship: "Sibling", companies: ["Tank Construction Company"], contracts: 3 }]),
+      fundingJson: JSON.stringify([{ district: "Tank", amount: "PKR 890M", year: 2023, contractsBack: 3, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Religious trust receives government education grants", weight: 29.4, description: "MP is trustee of institution that received PKR 230M in religious education infrastructure funding", evidenceLevel: "high" }, { factor: "Brother controls local construction monopoly", weight: 24.8, description: "Brother's firm won all 3 development contracts in Tank district during tenure", evidenceLevel: "high" }, { factor: "Asset income gap", weight: 14.2, description: "Declared assets substantially exceed estimated income from listed sources", evidenceLevel: "medium" }]),
+      connectionsJson: JSON.stringify(buildConnections("Maulana Asad Mehmood", 14, ["Al-Mehmood Madaris Trust"], ["Zahid Mehmood"], ["Tank","DI Khan"])),
     },
     {
-      name: "Khurram Nawaz Gandapur",
-      cnicPartial: "22405-XXXXX-1",
-      position: "MNA - National Assembly",
-      party: "PTI",
-      province: "KPK",
-      constituency: "NA-38 Dera Ismail Khan",
-      riskScore: 35.6,
-      riskTrend: "falling",
-      flagCount: 3,
-      assetsDeclared: "PKR 48 Million",
-      lastUpdated: "2024-01-15",
-      companiesJson: JSON.stringify([]),
+      name: "Mufti Abdul Shakoor", cnicPartial: "21204-XXXXX-2", position: "Senator", party: "JUI-F", province: "KPK", constituency: "Senate - KPK", riskScore: 55.3, riskTrend: "stable", flagCount: 5, assetsDeclared: "PKR 95 Million", lastUpdated: "2024-01-10",
+      companiesJson: JSON.stringify([{ companyName: "Shakoor Halal Industries", secp_number: "SECP-0059234", relationship: "Owner", directorship: true, contractsValue: "PKR 120M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2023-3201", projectName: "Government Halal Certification Program", amount: "PKR 120M", awardedTo: "Shakoor Halal Industries", connection: "Direct ownership", year: 2023, source: "Ministry of National Food Security" }]),
+      relativesJson: JSON.stringify([]),
+      fundingJson: JSON.stringify([{ district: "Mardan", amount: "PKR 420M", year: 2022, contractsBack: 1, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Food certification company receives government contract", weight: 24.1, description: "Senator voted on food safety legislation while owning halal certification company that received government contract", evidenceLevel: "medium" }, { factor: "Single-source procurement concern", weight: 19.3, description: "Contract awarded without advertised tender", evidenceLevel: "medium" }, { factor: "Asset undervaluation", weight: 11.9, description: "Industrial premises valued below assessed market rate in declaration", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Mufti Abdul Shakoor", 15, ["Shakoor Halal Industries"], [], ["Mardan"])),
+    },
+    // ANP
+    {
+      name: "Amir Haider Khan Hoti", cnicPartial: "17301-XXXXX-8", position: "MPA - KPK Assembly", party: "ANP", province: "KPK", constituency: "PK-31 Mardan", riskScore: 47.9, riskTrend: "stable", flagCount: 5, assetsDeclared: "PKR 132 Million", lastUpdated: "2024-02-03",
+      companiesJson: JSON.stringify([{ companyName: "Hoti Industries Pvt Ltd", secp_number: "SECP-0023451", relationship: "Family business - father founded", directorship: false, contractsValue: "PKR 87M" }]),
+      contractsJson: JSON.stringify([{ contractId: "KPPRA-2022-0892", projectName: "Mardan District Road Improvement Phase I", amount: "PKR 87M", awardedTo: "Hoti Industries Pvt Ltd", connection: "Family business involvement", year: 2022, source: "KPPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Ameer Haider Hoti Sr. (Father)", relationship: "Parent", companies: ["Hoti Industries Pvt Ltd"], contracts: 4 }]),
+      fundingJson: JSON.stringify([{ district: "Mardan", amount: "PKR 560M", year: 2022, contractsBack: 2, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Family business received constituency contract", weight: 21.2, description: "Father's company received road contract in MPA's constituency", evidenceLevel: "medium" }, { factor: "Beneficial ownership disclosure gap", weight: 17.3, description: "Family business interest not explicitly listed in ECP declaration", evidenceLevel: "medium" }, { factor: "Multi-generation political-business entanglement", weight: 9.4, description: "Hoti family has combined political and business presence in Mardan for 3 generations", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Amir Haider Khan Hoti", 16, ["Hoti Industries"], ["Ameer Haider Hoti Sr."], ["Mardan"])),
+    },
+    // BAP - Balochistan
+    {
+      name: "Mir Abdul Quddus Bizenjo", cnicPartial: "52201-XXXXX-4", position: "MPA - Balochistan Assembly", party: "BAP", province: "Balochistan", constituency: "PB-29 Awaran", riskScore: 76.3, riskTrend: "rising", flagCount: 9, assetsDeclared: "PKR 95 Million", lastUpdated: "2024-01-18",
+      companiesJson: JSON.stringify([{ companyName: "Bizenjo Mining Consortium", secp_number: "SECP-0041234", relationship: "Director", directorship: true, contractsValue: "PKR 780M" }]),
+      contractsJson: JSON.stringify([{ contractId: "BRA-2023-0431", projectName: "Awaran Mining Lease - Mineral Extraction", amount: "PKR 780M", awardedTo: "Bizenjo Mining Consortium", connection: "Direct directorship", year: 2023, source: "Balochistan Revenue Authority" }]),
+      relativesJson: JSON.stringify([{ name: "Naseer Bizenjo (Brother)", relationship: "Sibling", companies: ["Bizenjo Logistics","Southern Transport Co."], contracts: 5 }]),
+      fundingJson: JSON.stringify([{ district: "Awaran", amount: "PKR 1.2B", year: 2023, contractsBack: 3, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Mineral lease to personally owned company", weight: 32.4, description: "MPA directed Balochistan mining lease to his own consortium, PKR 780M value", evidenceLevel: "high" }, { factor: "Brother transport monopoly in area", weight: 23.1, description: "Brother's logistics company has exclusive transport contract for same mining area", evidenceLevel: "high" }, { factor: "CPEC adjacent contract concentration", weight: 20.8, description: "Multiple CPEC-adjacent contracts awarded to Bizenjo-linked entities", evidenceLevel: "medium" }]),
+      connectionsJson: JSON.stringify(buildConnections("Mir Abdul Quddus Bizenjo", 17, ["Bizenjo Mining Consortium"], ["Naseer Bizenjo"], ["Awaran","Khuzdar"])),
+    },
+    // PML-Q
+    {
+      name: "Chaudhry Pervez Elahi", cnicPartial: "35302-XXXXX-1", position: "Former CM Punjab / MPA", party: "PML-Q", province: "Punjab", constituency: "PP-32 Gujrat", riskScore: 83.7, riskTrend: "stable", flagCount: 13, assetsDeclared: "PKR 1.2 Billion", lastUpdated: "2024-02-08",
+      companiesJson: JSON.stringify([{ companyName: "Gujrat Power Holdings", secp_number: "SECP-0007432", relationship: "Family holding company", directorship: false, contractsValue: "PKR 4.2B" }, { companyName: "Elahi Ceramic Industries", secp_number: "SECP-0012341", relationship: "Chairman", directorship: true, contractsValue: "PKR 1.1B" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2021-7891", projectName: "Punjab Roof Top Solar Program - Procurement", amount: "PKR 4.2B", awardedTo: "Gujrat Power Holdings (consortium)", connection: "Family holding company", year: 2021, source: "PPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Moonis Elahi (Son)", relationship: "Child", companies: ["Gujrat Power Holdings","Elahi Ceramic Industries","Media Group Pvt Ltd"], contracts: 11 }]),
+      fundingJson: JSON.stringify([{ district: "Gujrat", amount: "PKR 6.8B", year: 2021, contractsBack: 8, suspiciousLinks: true }, { district: "Mandi Bahauddin", amount: "PKR 2.1B", year: 2022, contractsBack: 4, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Son controls major conglomerate receiving government contracts", weight: 34.2, description: "Son Moonis Elahi's companies received PKR 5.3B in state contracts during CM tenure", evidenceLevel: "high" }, { factor: "Solar program procurement to family company", weight: 26.8, description: "Major Punjab solar initiative contracts concentrated in family-connected entities", evidenceLevel: "high" }, { factor: "Gujrat municipality budget anomalies", weight: 22.7, description: "Gujrat municipality spend patterns show unusual concentration in family-linked vendors during tenure", evidenceLevel: "high" }]),
+      connectionsJson: JSON.stringify(buildConnections("Chaudhry Pervez Elahi", 18, ["Gujrat Power Holdings","Elahi Ceramics"], ["Moonis Elahi"], ["Gujrat","Mandi Bahauddin"])),
+    },
+    // IPP
+    {
+      name: "Jahangir Khan Tareen", cnicPartial: "31304-XXXXX-2", position: "MNA / Party Founder", party: "IPP", province: "Punjab", constituency: "NA-154 Lodhran", riskScore: 73.5, riskTrend: "stable", flagCount: 10, assetsDeclared: "PKR 4.1 Billion", lastUpdated: "2024-01-22",
+      companiesJson: JSON.stringify([{ companyName: "JDW Sugar Mills Ltd (Listed)", secp_number: "SECP-0000234", relationship: "Chairman & CEO", directorship: true, contractsValue: "PKR 7.8B" }, { companyName: "Tareen Agri Holdings", secp_number: "SECP-0003421", relationship: "Owner", directorship: true, contractsValue: "PKR 890M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2018-0892", projectName: "Punjab Sugar Support Price Program", amount: "PKR 7.8B", awardedTo: "JDW Sugar Mills & subsidiaries", connection: "Direct CEO ownership of listed company", year: 2018, source: "Punjab Agriculture Dept" }]),
+      relativesJson: JSON.stringify([{ name: "Ali Tareen (Son)", relationship: "Child", companies: ["Tareen Agri Holdings","AT Cricket Franchise","Multan Sultans PSL"], contracts: 3 }]),
+      fundingJson: JSON.stringify([{ district: "Lodhran", amount: "PKR 2.3B", year: 2020, contractsBack: 4, suspiciousLinks: true }, { district: "Dera Ghazi Khan", amount: "PKR 1.8B", year: 2021, contractsBack: 2, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Sugar support price lobbying with direct ownership", weight: 30.4, description: "JKT lobbied for sugar support prices as government advisor while owning Pakistan's largest sugar mill", evidenceLevel: "high" }, { factor: "Aircraft & foreign asset disclosure gap", weight: 22.1, description: "Supreme Court held assets concealed in ECP filings; resulted in disqualification order", evidenceLevel: "high" }, { factor: "Son's business empire growth during political period", weight: 21.0, description: "Ali Tareen's business portfolio grew 8x during period of political influence", evidenceLevel: "high" }]),
+      connectionsJson: JSON.stringify(buildConnections("Jahangir Khan Tareen", 19, ["JDW Sugar Mills","Tareen Agri Holdings"], ["Ali Tareen"], ["Lodhran","DG Khan"])),
+    },
+    // Bureaucrat / Non-party technocrat
+    {
+      name: "Naved Cheema", cnicPartial: "35201-XXXXX-6", position: "Federal Secretary - Interior", party: "Non-party (Bureaucrat)", province: "Punjab", constituency: "Federal Government", riskScore: 62.1, riskTrend: "rising", flagCount: 7, assetsDeclared: "PKR 78 Million", lastUpdated: "2024-02-14",
+      companiesJson: JSON.stringify([{ companyName: "NCG Consulting Pvt Ltd (spouse)", secp_number: "SECP-0082341", relationship: "Spouse is sole director", directorship: false, contractsValue: "PKR 145M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2023-2910", projectName: "Interior Ministry IT Modernization Advisory", amount: "PKR 145M", awardedTo: "NCG Consulting Pvt Ltd", connection: "Spouse is director of winning consultancy", year: 2023, source: "PPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Ayesha Cheema (Wife)", relationship: "Spouse", companies: ["NCG Consulting Pvt Ltd"], contracts: 3 }]),
+      fundingJson: JSON.stringify([]),
+      riskFactorsJson: JSON.stringify([{ factor: "Spouse's consultancy awarded ministry contract", weight: 28.7, description: "Secretary approved contract to consultancy owned by wife for work under his own ministry", evidenceLevel: "high" }, { factor: "Conflict of interest - approval chain", weight: 21.4, description: "No recusal recorded in PPRA file for contract involving spouse's company", evidenceLevel: "high" }, { factor: "Asset mismatch on government salary", weight: 12.0, description: "Declared assets PKR 78M on government salary of PKR ~4M/year over 18-year career", evidenceLevel: "medium" }]),
+      connectionsJson: JSON.stringify(buildConnections("Naved Cheema", 20, ["NCG Consulting (spouse)"], ["Ayesha Cheema"], [])),
+    },
+    // Additional PML-N
+    {
+      name: "Azam Nazeer Tarar", cnicPartial: "35202-XXXXX-5", position: "Senator - Federal Minister", party: "PML-N", province: "Punjab", constituency: "Senate", riskScore: 29.8, riskTrend: "stable", flagCount: 2, assetsDeclared: "PKR 55 Million", lastUpdated: "2024-01-15",
+      companiesJson: JSON.stringify([{ companyName: "Tarar Law Associates", secp_number: "SECP-0091234", relationship: "Partner", directorship: false, contractsValue: "PKR 0" }]),
       contractsJson: JSON.stringify([]),
-      relativesJson: JSON.stringify([
-        { name: "Ali Khan Gandapur (Brother)", relationship: "Sibling", companies: ["DI Khan Traders"], contracts: 1 },
-      ]),
-      fundingJson: JSON.stringify([
-        { district: "Dera Ismail Khan", amount: "PKR 780M", year: 2023, contractsBack: 1, suspiciousLinks: false },
-      ]),
-      riskFactorsJson: JSON.stringify([
-        { factor: "Brother has minor contract in constituency", weight: 12.3, description: "Brother's small trading company received one supply contract", evidenceLevel: "low" },
-        { factor: "Asset declaration - minor gaps", weight: 13.3, description: "Some agricultural land not clearly categorized", evidenceLevel: "low" },
-        { factor: "Family political network", weight: 10.0, description: "Multiple family members in different levels of government without clear independence", evidenceLevel: "low" },
-      ]),
-      connectionsJson: JSON.stringify(buildConnections("Khurram Nawaz Gandapur", 8, [], ["Ali Khan Gandapur"], ["Dera Ismail Khan"])),
+      relativesJson: JSON.stringify([]),
+      fundingJson: JSON.stringify([]),
+      riskFactorsJson: JSON.stringify([{ factor: "Law firm government advisory work", weight: 17.1, description: "Law firm receives government legal advisory contracts in areas where minister has oversight", evidenceLevel: "low" }, { factor: "Minor asset declaration gaps", weight: 12.7, description: "Some professional fee income not fully itemized", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Azam Nazeer Tarar", 21, ["Tarar Law Associates"], [], [])),
+    },
+    // Additional PPP
+    {
+      name: "Syed Khurshid Shah", cnicPartial: "45301-XXXXX-3", position: "MNA - Opposition Leader", party: "PPP", province: "Sindh", constituency: "NA-196 Sukkur", riskScore: 66.9, riskTrend: "stable", flagCount: 8, assetsDeclared: "PKR 310 Million", lastUpdated: "2024-01-28",
+      companiesJson: JSON.stringify([{ companyName: "Shah Builders & Contractors", secp_number: "SECP-0024531", relationship: "Director", directorship: true, contractsValue: "PKR 560M" }]),
+      contractsJson: JSON.stringify([{ contractId: "SPPRA-2021-1203", projectName: "Sukkur Urban Development Programme", amount: "PKR 560M", awardedTo: "Shah Builders & Contractors", connection: "MNA is director", year: 2021, source: "SPPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Farzana Shah (Daughter)", relationship: "Child", companies: ["Shah Realty Sukkur"], contracts: 2 }]),
+      fundingJson: JSON.stringify([{ district: "Sukkur", amount: "PKR 2.8B", year: 2021, contractsBack: 5, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "MP director of contract-winning construction firm", weight: 27.4, description: "Shah Builders received major Sukkur contract while MNA was active director", evidenceLevel: "high" }, { factor: "NAB reference pending - Sukkur assets", weight: 23.1, description: "NAB has an active reference regarding Sukkur property transactions", evidenceLevel: "high" }, { factor: "Daughter's real estate company acquisition patterns", weight: 16.4, description: "Multiple land acquisitions by daughter's company in areas of planned public development", evidenceLevel: "medium" }]),
+      connectionsJson: JSON.stringify(buildConnections("Syed Khurshid Shah", 22, ["Shah Builders & Contractors"], ["Farzana Shah"], ["Sukkur"])),
+    },
+    // BNP
+    {
+      name: "Akhtar Mengal", cnicPartial: "52101-XXXXX-1", position: "MNA - National Assembly", party: "BNP-M", province: "Balochistan", constituency: "NA-261 Khuzdar", riskScore: 41.3, riskTrend: "falling", flagCount: 4, assetsDeclared: "PKR 220 Million", lastUpdated: "2024-01-12",
+      companiesJson: JSON.stringify([{ companyName: "Mengal Mineral Resources", secp_number: "SECP-0051234", relationship: "Family interest", directorship: false, contractsValue: "PKR 180M" }]),
+      contractsJson: JSON.stringify([{ contractId: "BRA-2022-0120", projectName: "Khuzdar Mineral Survey & Extraction Rights", amount: "PKR 180M", awardedTo: "Mengal Mineral Resources", connection: "Family mineral company", year: 2022, source: "BRA" }]),
+      relativesJson: JSON.stringify([{ name: "Naseer Mengal (Brother)", relationship: "Sibling", companies: ["Mengal Mineral Resources"], contracts: 2 }]),
+      fundingJson: JSON.stringify([{ district: "Khuzdar", amount: "PKR 670M", year: 2022, contractsBack: 1, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Family mineral company in constituency area", weight: 18.9, description: "Sibling controls mineral company with extraction rights in MNA's constituency", evidenceLevel: "medium" }, { factor: "Tribal land holding transparency", weight: 12.4, description: "Traditional tribal landholdings not fully mapped in ECP declaration", evidenceLevel: "low" }, { factor: "Opposition stance reduces risk score", weight: -10.0, description: "Consistent opposition to ruling coalitions reduces incentive alignment", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Akhtar Mengal", 23, ["Mengal Mineral Resources"], ["Naseer Mengal"], ["Khuzdar"])),
+    },
+    // Grand National Party / Independents
+    {
+      name: "Sheikh Rashid Ahmad", cnicPartial: "37405-XXXXX-8", position: "MNA - National Assembly", party: "AML", province: "Punjab", constituency: "NA-60 Rawalpindi", riskScore: 53.7, riskTrend: "stable", flagCount: 6, assetsDeclared: "PKR 340 Million", lastUpdated: "2024-02-06",
+      companiesJson: JSON.stringify([{ companyName: "Rashid Enterprises Pvt Ltd", secp_number: "SECP-0031243", relationship: "Owner", directorship: true, contractsValue: "PKR 90M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2019-2341", projectName: "Rawalpindi Junction Hotel Lal Haveli - City Development", amount: "PKR 90M", awardedTo: "Rashid Enterprises (historic)", connection: "Direct ownership", year: 2019, source: "PPRA" }]),
+      relativesJson: JSON.stringify([]),
+      fundingJson: JSON.stringify([{ district: "Rawalpindi", amount: "PKR 1.1B", year: 2019, contractsBack: 1, suspiciousLinks: false }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Lal Haveli property asset valuation questions", weight: 24.3, description: "Heritage property declared at value significantly below Rawalpindi market rate", evidenceLevel: "medium" }, { factor: "Business ownership while minister", weight: 18.7, description: "Operated private enterprise while holding cabinet portfolios with related oversight", evidenceLevel: "medium" }, { factor: "Cross-party political agility and asset growth correlation", weight: 10.7, description: "Asset growth accelerated during each ministerial appointment", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Sheikh Rashid Ahmad", 24, ["Rashid Enterprises"], [], ["Rawalpindi"])),
+    },
+    {
+      name: "Engr. Khurram Dastgir Khan", cnicPartial: "34101-XXXXX-4", position: "MNA - Federal Minister", party: "PML-N", province: "Punjab", constituency: "NA-64 Gujranwala", riskScore: 48.2, riskTrend: "rising", flagCount: 5, assetsDeclared: "PKR 198 Million", lastUpdated: "2024-02-02",
+      companiesJson: JSON.stringify([{ companyName: "Gujranwala Metal Works", secp_number: "SECP-0023412", relationship: "Director", directorship: true, contractsValue: "PKR 310M" }]),
+      contractsJson: JSON.stringify([{ contractId: "PPRA-2022-8901", projectName: "Power Sector Equipment Supply - NEPRA Approved", amount: "PKR 310M", awardedTo: "Gujranwala Metal Works", connection: "MNA is director; was Energy Minister when contract awarded", year: 2022, source: "PPRA" }]),
+      relativesJson: JSON.stringify([{ name: "Dastgir Khan Sr. (Father)", relationship: "Parent", companies: ["Gujranwala Metal Works"], contracts: 6 }]),
+      fundingJson: JSON.stringify([{ district: "Gujranwala", amount: "PKR 1.4B", year: 2022, contractsBack: 3, suspiciousLinks: true }]),
+      riskFactorsJson: JSON.stringify([{ factor: "Energy minister award to personal company", weight: 23.4, description: "Power sector contract awarded to his company while he was Energy Minister", evidenceLevel: "high" }, { factor: "Multi-generational family firm - procurement concentration", weight: 17.9, description: "Family firm has won 6 power sector contracts since 2015 corresponding to political tenure", evidenceLevel: "medium" }, { factor: "Asset declared below market rate", weight: 6.9, description: "Industrial plant valuation significantly below replacement cost", evidenceLevel: "low" }]),
+      connectionsJson: JSON.stringify(buildConnections("Engr. Khurram Dastgir Khan", 25, ["Gujranwala Metal Works"], ["Dastgir Khan Sr."], ["Gujranwala"])),
     },
   ];
 
   const insertedOfficials = await db.insert(officialsTable).values(officials).returning();
   console.log(`Inserted ${insertedOfficials.length} officials`);
 
+  // --- ALERTS ---
+  const getOfficialId = (name: string) => insertedOfficials.find(o => o.name === name)?.id ?? null;
+
   const alerts = [
-    {
-      title: "Ghost Employee Network Detected - AGPR Punjab Payroll",
-      description: "Cross-referencing NADRA CNIC status with AGPR federal payroll reveals 47 employees drawing salaries with deceased CNIC status. Concentrated in 3 departments with connections to NA-208 constituency.",
-      severity: "critical",
-      status: "new",
-      officialId: insertedOfficials[6].id,
-      officialName: "Ghulam Mustafa Khar",
-      detectedAt: "2024-02-18T09:23:00Z",
-      patternType: "ghost_employee",
-      estimatedValue: "PKR 2.8M/month",
-      dataSourcesJson: JSON.stringify(["NADRA", "AGPR", "ECP"]),
-    },
-    {
-      title: "Circular Contract Pattern - Hussain Steel Mills & Sialkot Bypass",
-      description: "MNA Malik Asghar Hussain directed PKR 3.4B in PSDP funds to Sialkot district. 7 contracts traced back to Hussain Steel Mills (directly owned) and Al-Hussain Construction (wife is director). Pattern matches fund→family→contract cycle.",
-      severity: "critical",
-      status: "reviewing",
-      officialId: insertedOfficials[0].id,
-      officialName: "Malik Asghar Hussain",
-      detectedAt: "2024-02-15T14:11:00Z",
-      patternType: "circular_contract",
-      estimatedValue: "PKR 1.54B",
-      dataSourcesJson: JSON.stringify(["PPRA", "SECP", "PSDP", "ECP"]),
-    },
-    {
-      title: "Asset Enrichment Anomaly - Khar Family Petroleum Expansion",
-      description: "Khar Petroleum Ltd assets grew 340% in 2 years during period of MPA Khar's budget committee membership. NHA motorway service area contracts worth PKR 2.1B awarded without evidence of competitive tender.",
-      severity: "critical",
-      status: "new",
-      officialId: insertedOfficials[6].id,
-      officialName: "Ghulam Mustafa Khar",
-      detectedAt: "2024-02-17T11:45:00Z",
-      patternType: "relative_enrichment",
-      estimatedValue: "PKR 2.1B",
-      dataSourcesJson: JSON.stringify(["SECP", "PPRA", "FBR", "ECP"]),
-    },
-    {
-      title: "Fund Diversion Signal - Hyderabad Drainage Project",
-      description: "Sindh PPRA contract for Hyderabad Drainage worth PKR 890M shows 34% cost inflation vs. comparable 2021 project. Vendor Indus Trade International registered only 18 months before winning contract, with MPA Rubina Akhtar's brother-in-law as director.",
-      severity: "high",
-      status: "new",
-      officialId: insertedOfficials[1].id,
-      officialName: "Bibi Rubina Akhtar",
-      detectedAt: "2024-02-14T16:30:00Z",
-      patternType: "fund_diversion",
-      estimatedValue: "PKR 305M (inflated portion)",
-      dataSourcesJson: JSON.stringify(["SPPRA", "SECP", "ECP"]),
-    },
-    {
-      title: "Procurement Anomaly - KPK Ring Road Single Bidder",
-      description: "KPK Construction Consortium won NA-19 ring road contract with only one other bidder (disqualified on day of opening). Company registered 58 days before tender publication. Son Bilal Qureshi is sole director.",
-      severity: "high",
-      status: "reviewing",
-      officialId: insertedOfficials[2].id,
-      officialName: "Fazal ur Rahman Qureshi",
-      detectedAt: "2024-02-10T10:15:00Z",
-      patternType: "procurement_anomaly",
-      estimatedValue: "PKR 412M",
-      dataSourcesJson: JSON.stringify(["KPPRA", "SECP", "NADRA"]),
-    },
-    {
-      title: "Senator Sugar Policy Conflict of Interest",
-      description: "Senator Chaudhry Nawaz Baig voted in favor of sugar export quota increase on 3 occasions while simultaneously serving as Chairman of Baig Sugar Mills Ltd (1.2M ton/year capacity). ECP declaration lists sugar mills but no conflict of interest declaration filed.",
-      severity: "high",
-      status: "new",
-      officialId: insertedOfficials[3].id,
-      officialName: "Chaudhry Nawaz Baig",
-      detectedAt: "2024-02-08T08:00:00Z",
-      patternType: "asset_mismatch",
-      estimatedValue: "Policy impact: PKR 8B+ sugar sector",
-      dataSourcesJson: JSON.stringify(["ECP", "SECP", "Senate Records", "PPRA"]),
-    },
-    {
-      title: "Undisclosed Land Holdings - Multiple Provinces",
-      description: "Punjab Zameen and PRAL land records cross-referenced with ECP declarations reveal 8 properties across Punjab and Sindh owned by Khar family members not disclosed in official asset declarations.",
-      severity: "high",
-      status: "new",
-      officialId: insertedOfficials[6].id,
-      officialName: "Ghulam Mustafa Khar",
-      detectedAt: "2024-02-16T13:20:00Z",
-      patternType: "asset_mismatch",
-      estimatedValue: "PKR 340M (estimated market value)",
-      dataSourcesJson: JSON.stringify(["PRAL", "ECP", "TMA", "NADRA"]),
-    },
-    {
-      title: "Ghost School Construction Payroll - PS-52 Rural Scheme",
-      description: "AGPR payroll for Bibi Rubina Akhtar constituency school construction shows 23 laborers on payroll including 4 CNICs matching deceased individuals in NADRA database. Total fraudulent payroll estimated at PKR 1.4M/month over 8-month project.",
-      severity: "medium",
-      status: "reviewing",
-      officialId: insertedOfficials[1].id,
-      officialName: "Bibi Rubina Akhtar",
-      detectedAt: "2024-01-22T12:00:00Z",
-      patternType: "ghost_employee",
-      estimatedValue: "PKR 11.2M",
-      dataSourcesJson: JSON.stringify(["NADRA", "AGPR", "SPPRA"]),
-    },
-    {
-      title: "Minor Health Contract Conflict - Waqar Medical Centre",
-      description: "Dr. Saima Waqar's husband co-owns Waqar Medical Centre which received PKR 23M Sindh government free medical camp contract. Low risk due to small size, disclosed ownership, and single occurrence.",
-      severity: "low",
-      status: "resolved",
-      officialId: insertedOfficials[5].id,
-      officialName: "Dr. Saima Waqar",
-      detectedAt: "2024-01-10T09:00:00Z",
-      patternType: "circular_contract",
-      estimatedValue: "PKR 23M",
-      dataSourcesJson: JSON.stringify(["SPPRA", "SECP", "ECP"]),
-    },
-    {
-      title: "Federal Payroll Anomaly - Ministry of Housing 2023 Batch",
-      description: "Cross-referencing AGPR Ministry of Housing payroll with NADRA CNIC verification found 34 employees with CNIC status anomalies (deceased, duplicate, or invalid). Monthly payout: PKR 4.1M. No connection to specific elected official confirmed yet.",
-      severity: "critical",
-      status: "new",
-      officialId: null,
-      officialName: null,
-      detectedAt: "2024-02-19T07:30:00Z",
-      patternType: "ghost_employee",
-      estimatedValue: "PKR 49.2M/year",
-      dataSourcesJson: JSON.stringify(["AGPR", "NADRA", "FBR"]),
-    },
+    { title: "Ghost Employee Network Detected - AGPR Punjab Payroll", description: "Cross-referencing NADRA CNIC status with AGPR federal payroll reveals 47 employees drawing salaries with deceased CNIC status. Concentrated in 3 departments with connections to PP-208 Muzaffargarh.", severity: "critical", status: "new", officialId: getOfficialId("Ghulam Mustafa Khar"), officialName: "Ghulam Mustafa Khar", detectedAt: "2024-02-18T09:23:00Z", patternType: "ghost_employee", estimatedValue: "PKR 2.8M/month", dataSourcesJson: JSON.stringify(["NADRA","AGPR","ECP"]) },
+    { title: "Circular Contract Pattern - Hussain Steel Mills & Sialkot Bypass", description: "MNA Malik Asghar Hussain directed PKR 3.4B in PSDP funds to Sialkot district. 7 contracts traced back to Hussain Steel Mills (directly owned) and Al-Hussain Construction (wife is director).", severity: "critical", status: "reviewing", officialId: getOfficialId("Malik Asghar Hussain"), officialName: "Malik Asghar Hussain", detectedAt: "2024-02-15T14:11:00Z", patternType: "circular_contract", estimatedValue: "PKR 1.54B", dataSourcesJson: JSON.stringify(["PPRA","SECP","PSDP","ECP"]) },
+    { title: "Asset Enrichment Anomaly - Khar Family Petroleum Expansion", description: "Khar Petroleum Ltd assets grew 340% in 2 years during period of MPA Khar's budget committee membership. NHA motorway service area contracts worth PKR 2.1B awarded without competitive tender evidence.", severity: "critical", status: "new", officialId: getOfficialId("Ghulam Mustafa Khar"), officialName: "Ghulam Mustafa Khar", detectedAt: "2024-02-17T11:45:00Z", patternType: "relative_enrichment", estimatedValue: "PKR 2.1B", dataSourcesJson: JSON.stringify(["SECP","PPRA","FBR","ECP"]) },
+    { title: "Federal Payroll Anomaly - Ministry of Housing 2023 Batch", description: "Cross-referencing AGPR Ministry of Housing payroll with NADRA CNIC verification found 34 employees with CNIC status anomalies (deceased, duplicate, or invalid). Monthly payout: PKR 4.1M. No connection to specific elected official confirmed yet.", severity: "critical", status: "new", officialId: null, officialName: null, detectedAt: "2024-02-19T07:30:00Z", patternType: "ghost_employee", estimatedValue: "PKR 49.2M/year", dataSourcesJson: JSON.stringify(["AGPR","NADRA","FBR"]) },
+    { title: "Fund Diversion Signal - Hyderabad Drainage Project", description: "Sindh PPRA contract for Hyderabad Drainage worth PKR 890M shows 34% cost inflation vs. comparable 2021 project. Vendor Indus Trade International registered only 18 months before winning contract, with MPA Rubina Akhtar's brother-in-law as director.", severity: "high", status: "new", officialId: getOfficialId("Bibi Rubina Akhtar"), officialName: "Bibi Rubina Akhtar", detectedAt: "2024-02-14T16:30:00Z", patternType: "fund_diversion", estimatedValue: "PKR 305M (inflated portion)", dataSourcesJson: JSON.stringify(["SPPRA","SECP","ECP"]) },
+    { title: "Procurement Anomaly - KPK Ring Road Single Bidder", description: "KPK Construction Consortium won NA-19 ring road contract with only one other bidder (disqualified on day of opening). Company registered 58 days before tender publication. Son Bilal Qureshi is sole director.", severity: "high", status: "reviewing", officialId: getOfficialId("Fazal ur Rahman Qureshi"), officialName: "Fazal ur Rahman Qureshi", detectedAt: "2024-02-10T10:15:00Z", patternType: "procurement_anomaly", estimatedValue: "PKR 412M", dataSourcesJson: JSON.stringify(["KPPRA","SECP","NADRA"]) },
+    { title: "Sugar Policy Conflict of Interest - Senator Baig", description: "Senator Chaudhry Nawaz Baig voted in favor of sugar export quota increase on 3 occasions while simultaneously serving as Chairman of Baig Sugar Mills Ltd (1.2M ton/year capacity).", severity: "high", status: "new", officialId: getOfficialId("Chaudhry Nawaz Baig"), officialName: "Chaudhry Nawaz Baig", detectedAt: "2024-02-08T08:00:00Z", patternType: "asset_mismatch", estimatedValue: "Policy impact: PKR 8B+ sugar sector", dataSourcesJson: JSON.stringify(["ECP","SECP","Senate Records","PPRA"]) },
+    { title: "JKT Sugar Support Price Circular - Historical Pattern", description: "JDW Sugar Mills (owned by Jahangir Tareen) was primary beneficiary of sugar support price mechanism that Tareen advocated for as PTI's principal figure. Supreme Court later held assets were concealed.", severity: "high", status: "reviewing", officialId: getOfficialId("Jahangir Khan Tareen"), officialName: "Jahangir Khan Tareen", detectedAt: "2024-01-15T10:00:00Z", patternType: "circular_contract", estimatedValue: "PKR 7.8B", dataSourcesJson: JSON.stringify(["PPRA","SECP","FBR","ECP","Supreme Court"]) },
+    { title: "Balochistan Mining Lease - Bizenjo Conflict", description: "MPA Bizenjo's own mining consortium received PKR 780M Awaran extraction lease. Brother simultaneously holds exclusive transport contract for same mine. No evidence of competitive bidding for lease.", severity: "high", status: "new", officialId: getOfficialId("Mir Abdul Quddus Bizenjo"), officialName: "Mir Abdul Quddus Bizenjo", detectedAt: "2024-01-18T09:00:00Z", patternType: "circular_contract", estimatedValue: "PKR 780M", dataSourcesJson: JSON.stringify(["BRA","SECP","NADRA"]) },
+    { title: "Federal Secretary - Spouse's Consultancy Receives Ministry Contract", description: "Federal Secretary (Interior) Naved Cheema signed off on PKR 145M IT modernization advisory contract awarded to NCG Consulting Pvt Ltd. SECP records show his spouse Ayesha Cheema is sole director and shareholder.", severity: "high", status: "new", officialId: getOfficialId("Naved Cheema"), officialName: "Naved Cheema", detectedAt: "2024-02-14T15:00:00Z", patternType: "circular_contract", estimatedValue: "PKR 145M", dataSourcesJson: JSON.stringify(["PPRA","SECP","NADRA"]) },
+    { title: "Undisclosed Land Holdings - Multiple Provinces (Khar Network)", description: "Punjab Zameen and PRAL land records cross-referenced with ECP declarations reveal 8 properties across Punjab and Sindh owned by Khar family members not disclosed in official asset declarations.", severity: "high", status: "new", officialId: getOfficialId("Ghulam Mustafa Khar"), officialName: "Ghulam Mustafa Khar", detectedAt: "2024-02-16T13:20:00Z", patternType: "asset_mismatch", estimatedValue: "PKR 340M (estimated market value)", dataSourcesJson: JSON.stringify(["PRAL","ECP","TMA","NADRA"]) },
+    { title: "Ghost School Construction Payroll - PS-52 Rural Scheme", description: "AGPR payroll for Bibi Rubina Akhtar constituency school construction shows 23 laborers on payroll including 4 CNICs matching deceased individuals in NADRA database. Fraudulent payroll estimated at PKR 1.4M/month over 8-month project.", severity: "medium", status: "reviewing", officialId: getOfficialId("Bibi Rubina Akhtar"), officialName: "Bibi Rubina Akhtar", detectedAt: "2024-01-22T12:00:00Z", patternType: "ghost_employee", estimatedValue: "PKR 11.2M", dataSourcesJson: JSON.stringify(["NADRA","AGPR","SPPRA"]) },
+    { title: "JUI-F Religious Infrastructure Grant - Trustee Conflict", description: "MNA Maulana Asad Mehmood is registered trustee of Al-Mehmood Madaris Trust which received PKR 230M government religious education grant. No independent trustee involved in grant application.", severity: "medium", status: "new", officialId: getOfficialId("Maulana Asad Mehmood"), officialName: "Maulana Asad Mehmood", detectedAt: "2024-01-30T11:00:00Z", patternType: "circular_contract", estimatedValue: "PKR 230M", dataSourcesJson: JSON.stringify(["PPRA","SECP","Ministry of Religious Affairs"]) },
+    { title: "PML-Q Solar Procurement Pattern - Punjab CM Tenure", description: "During Pervez Elahi's CM tenure, Punjab rooftop solar program procurement shows 67% of contracts went to entities with documented links to Elahi family companies or investment vehicles.", severity: "medium", status: "reviewing", officialId: getOfficialId("Chaudhry Pervez Elahi"), officialName: "Chaudhry Pervez Elahi", detectedAt: "2024-02-08T08:00:00Z", patternType: "procurement_anomaly", estimatedValue: "PKR 4.2B", dataSourcesJson: JSON.stringify(["PPRA","SECP","ECP","FBR"]) },
+    { title: "Energy Minister - Power Equipment Contract to Own Company", description: "Engr. Khurram Dastgir Khan's Gujranwala Metal Works received PKR 310M power sector supply contract during period when he served as Federal Minister for Energy. PPRA file shows he was in approval chain.", severity: "medium", status: "new", officialId: getOfficialId("Engr. Khurram Dastgir Khan"), officialName: "Engr. Khurram Dastgir Khan", detectedAt: "2024-02-02T09:00:00Z", patternType: "circular_contract", estimatedValue: "PKR 310M", dataSourcesJson: JSON.stringify(["PPRA","SECP","NEPRA Records"]) },
+    { title: "Minor Health Contract Conflict - Waqar Medical Centre", description: "Dr. Saima Waqar's husband co-owns Waqar Medical Centre which received PKR 23M Sindh government free medical camp contract. Low risk due to small size, disclosed ownership, and single occurrence.", severity: "low", status: "resolved", officialId: getOfficialId("Dr. Saima Waqar"), officialName: "Dr. Saima Waqar", detectedAt: "2024-01-10T09:00:00Z", patternType: "circular_contract", estimatedValue: "PKR 23M", dataSourcesJson: JSON.stringify(["SPPRA","SECP","ECP"]) },
   ];
 
   const insertedAlerts = await db.insert(alertsTable).values(alerts).returning();
