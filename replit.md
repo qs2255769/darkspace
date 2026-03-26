@@ -1,3 +1,20 @@
+# Pakistan Accountability Intelligence System (PAIS)
+
+## Project Description
+
+A full-stack government transparency and accountability tool for Pakistan. Inspired by Bruno César's Brazilian corruption-detection AI, PAIS cross-references Pakistani public databases to detect patterns of suspicious activity and generates percentage-based risk scores for public officials.
+
+## Key Features
+
+- **15 Pakistani public databases** catalogued (NADRA, ECP, SECP, PPRA, AGPR, FBR, NAB, PSDP, PRAL, SBP, FIA, TMA, DGI, OEC, CCP)
+- **8 tracked officials** with detailed risk profiles
+- **10 suspicious pattern alerts** (ghost employees, circular contracts, fund diversion, asset mismatch)
+- **Risk scoring** (0-100%) — legally safe: no direct "corruption" labels
+- **Relationship graph** visualizing official → company → relative → contract chains
+- **Pattern types**: ghost employees, circular contracts, relative enrichment, fund diversion, procurement anomaly, asset mismatch
+
+## Original Workspace
+
 # Workspace
 
 ## Overview

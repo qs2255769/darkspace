@@ -1,22 +1,33 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Pakistan Accountability Intelligence System API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: databases
+    description: Pakistan public database registry
+  - name: officials
+    description: Public officials tracking
+  - name: riskScores
+    description: Risk score calculation and retrieval
+  - name: connections
+    description: Relationship mapping between entities
+  - name: alerts
+    description: Suspicious pattern alerts
+  - name: stats
+    description: System statistics
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +35,165 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /databases:
+    get:
+      operationId: listDatabases
+      tags: [databases]
+      summary: List all Pakistani public databases
+      responses:
+        "200":
+          description: List of databases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PublicDatabase"
+
+  /databases/{id}:
+    get:
+      operationId: getDatabase
+      tags: [databases]
+      summary: Get a specific database
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Database details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicDatabase"
+
+  /officials:
+    get:
+      operationId: listOfficials
+      tags: [officials]
+      summary: List all tracked public officials
+      parameters:
+        - name: province
+          in: query
+          schema:
+            type: string
+        - name: party
+          in: query
+          schema:
+            type: string
+        - name: minRisk
+          in: query
+          schema:
+            type: number
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of officials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Official"
+
+  /officials/{id}:
+    get:
+      operationId: getOfficial
+      tags: [officials]
+      summary: Get full official profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Official profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OfficialDetail"
+
+  /officials/{id}/connections:
+    get:
+      operationId: getOfficialConnections
+      tags: [connections]
+      summary: Get entity relationship graph for an official
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Connection graph data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionGraph"
+
+  /risk-scores:
+    get:
+      operationId: listRiskScores
+      tags: [riskScores]
+      summary: List all risk scores sorted by score
+      responses:
+        "200":
+          description: Risk scores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RiskScore"
+
+  /alerts:
+    get:
+      operationId: listAlerts
+      tags: [alerts]
+      summary: List suspicious pattern alerts
+      parameters:
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [new, reviewing, resolved]
+      responses:
+        "200":
+          description: Alert list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Alert"
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [stats]
+      summary: Get system-wide statistics
+      responses:
+        "200":
+          description: System stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStats"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +204,389 @@ components:
       required:
         - status
 
+    PublicDatabase:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        acronym:
+          type: string
+        category:
+          type: string
+          enum: [electoral, financial, corporate, procurement, payroll, judicial, land, welfare, foreign_assets, law_enforcement]
+        organization:
+          type: string
+        description:
+          type: string
+        dataTypes:
+          type: array
+          items:
+            type: string
+        accessLevel:
+          type: string
+          enum: [public, partial, restricted, unavailable]
+        url:
+          type: string
+          nullable: true
+        recordsEstimated:
+          type: string
+        lastUpdated:
+          type: string
+        integrationStatus:
+          type: string
+          enum: [integrated, planned, manual, unavailable]
+        keyFields:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+      required:
+        - id
+        - name
+        - acronym
+        - category
+        - organization
+        - description
+        - dataTypes
+        - accessLevel
+        - recordsEstimated
+        - integrationStatus
+        - keyFields
+        - notes
+
+    Official:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        cnicPartial:
+          type: string
+          description: Partial CNIC for privacy (last 4 digits masked)
+        position:
+          type: string
+        party:
+          type: string
+        province:
+          type: string
+        constituency:
+          type: string
+        riskScore:
+          type: number
+        riskTrend:
+          type: string
+          enum: [rising, falling, stable]
+        flagCount:
+          type: integer
+        assetsDeclared:
+          type: string
+        lastUpdated:
+          type: string
+      required:
+        - id
+        - name
+        - cnicPartial
+        - position
+        - party
+        - province
+        - riskScore
+        - riskTrend
+        - flagCount
+        - assetsDeclared
+        - lastUpdated
+
+    OfficialDetail:
+      allOf:
+        - $ref: "#/components/schemas/Official"
+        - type: object
+          properties:
+            companies:
+              type: array
+              items:
+                $ref: "#/components/schemas/CompanyLink"
+            contracts:
+              type: array
+              items:
+                $ref: "#/components/schemas/ContractLink"
+            relatives:
+              type: array
+              items:
+                $ref: "#/components/schemas/RelativeLink"
+            fundingAllocations:
+              type: array
+              items:
+                $ref: "#/components/schemas/FundingAllocation"
+            riskFactors:
+              type: array
+              items:
+                $ref: "#/components/schemas/RiskFactor"
+          required:
+            - companies
+            - contracts
+            - relatives
+            - fundingAllocations
+            - riskFactors
+
+    CompanyLink:
+      type: object
+      properties:
+        companyName:
+          type: string
+        secp_number:
+          type: string
+        relationship:
+          type: string
+        directorship:
+          type: boolean
+        contractsValue:
+          type: string
+      required:
+        - companyName
+        - secp_number
+        - relationship
+        - directorship
+        - contractsValue
+
+    ContractLink:
+      type: object
+      properties:
+        contractId:
+          type: string
+        projectName:
+          type: string
+        amount:
+          type: string
+        awardedTo:
+          type: string
+        connection:
+          type: string
+        year:
+          type: integer
+        source:
+          type: string
+      required:
+        - contractId
+        - projectName
+        - amount
+        - awardedTo
+        - connection
+        - year
+        - source
+
+    RelativeLink:
+      type: object
+      properties:
+        name:
+          type: string
+        relationship:
+          type: string
+        companies:
+          type: array
+          items:
+            type: string
+        contracts:
+          type: integer
+      required:
+        - name
+        - relationship
+        - companies
+        - contracts
+
+    FundingAllocation:
+      type: object
+      properties:
+        district:
+          type: string
+        amount:
+          type: string
+        year:
+          type: integer
+        contractsBack:
+          type: integer
+        suspiciousLinks:
+          type: boolean
+      required:
+        - district
+        - amount
+        - year
+        - contractsBack
+        - suspiciousLinks
+
+    RiskFactor:
+      type: object
+      properties:
+        factor:
+          type: string
+        weight:
+          type: number
+        description:
+          type: string
+        evidenceLevel:
+          type: string
+          enum: [low, medium, high]
+      required:
+        - factor
+        - weight
+        - description
+        - evidenceLevel
+
+    ConnectionGraph:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEdge"
+      required:
+        - nodes
+        - edges
+
+    GraphNode:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        type:
+          type: string
+          enum: [official, company, relative, contract, district, party]
+        riskScore:
+          type: number
+          nullable: true
+        value:
+          type: string
+          nullable: true
+      required:
+        - id
+        - label
+        - type
+
+    GraphEdge:
+      type: object
+      properties:
+        source:
+          type: string
+        target:
+          type: string
+        label:
+          type: string
+        suspicious:
+          type: boolean
+      required:
+        - source
+        - target
+        - label
+        - suspicious
+
+    RiskScore:
+      type: object
+      properties:
+        officialId:
+          type: integer
+        officialName:
+          type: string
+        position:
+          type: string
+        province:
+          type: string
+        score:
+          type: number
+        category:
+          type: string
+          enum: [low, medium, high, critical]
+        topFlags:
+          type: array
+          items:
+            type: string
+        lastCalculated:
+          type: string
+      required:
+        - officialId
+        - officialName
+        - position
+        - province
+        - score
+        - category
+        - topFlags
+        - lastCalculated
+
+    Alert:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        status:
+          type: string
+          enum: [new, reviewing, resolved]
+        officialId:
+          type: integer
+          nullable: true
+        officialName:
+          type: string
+          nullable: true
+        detectedAt:
+          type: string
+        patternType:
+          type: string
+          enum: [ghost_employee, circular_contract, relative_enrichment, fund_diversion, asset_mismatch, procurement_anomaly]
+        estimatedValue:
+          type: string
+          nullable: true
+        dataSources:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - title
+        - description
+        - severity
+        - status
+        - detectedAt
+        - patternType
+        - dataSources
+
+    SystemStats:
+      type: object
+      properties:
+        totalOfficials:
+          type: integer
+        databasesConnected:
+          type: integer
+        alertsGenerated:
+          type: integer
+        highRiskOfficials:
+          type: integer
+        totalContractsScanned:
+          type: integer
+        estimatedFundsAtRisk:
+          type: string
+        ghostEmployeesFound:
+          type: integer
+        lastFullScan:
+          type: string
+      required:
+        - totalOfficials
+        - databasesConnected
+        - alertsGenerated
+        - highRiskOfficials
+        - totalContractsScanned
+        - estimatedFundsAtRisk
+        - ghostEmployeesFound
+        - lastFullScan

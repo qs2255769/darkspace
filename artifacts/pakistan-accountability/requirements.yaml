@@ -1,0 +1,17 @@
+packages:
+  "recharts": "Data visualization for risk score gauges and statistics"
+  "framer-motion": "Smooth entry animations and micro-interactions for the dashboard elements"
+  "react-force-graph-2d": "Relationship mapping visualization for official connections"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility to merge tailwind classes safely"
+  "date-fns": "For human-readable date formatting in alerts and profiles"
+
+images:
+  - path: "artifacts/pakistan-accountability/public/images/bg-pattern.png"
+    description: "Dark, subtle geometric node network grid background, extremely low opacity, intelligence dashboard style, deep slate and green hues"
+    aspect_ratio: "16:9"
+
+notes:
+  - "Assuming @workspace/api-client-react hooks are properly generated and available."
+  - "The UI forces a dark mode aesthetic fitting an intelligence/investigative tool."
+  - "Risk scores are visualized with specific color coding (Green <30, Yellow 30-59, Orange 60-79, Red 80+)."
