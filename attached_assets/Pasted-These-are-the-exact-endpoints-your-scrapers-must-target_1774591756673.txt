@@ -1,0 +1,78 @@
+These are the exact endpoints your scrapers must target. Each site has a unique data "shape."
+Entity	Direct Data URL (2026)	Data Representation (Structure)
+National Assembly	https://na.gov.pk/en/all_members.php	Standard Table: Simple rows. Best for name/constituency mapping.
+Senate	https://senate.gov.pk/en/current_members.php	Grid Cards: Requires "Click-through" to reach individual profile sub-pages.
+Punjab Assembly	https://www.pap.gov.pk/members/directory/en/21/district/	District ID Loop: Append IDs 1-36 to the URL to get each region.
+Sindh Assembly	http://www.pas.gov.pk/index.php/members/by_district/en	Legacy Menu: Hidden in district dropdowns. Catch via table > tr selectors.
+KPK Assembly	https://www.pakp.gov.pk/members/	Modern Grid: Image-heavy. Needs to extract href links for details.
+Balochistan	https://pabalochistan.gov.pk/list-members	Searchable List: JSON-like rendering. Cleanest for API-style extraction.
+Wealth Mirror	https://openparliament.pk/	Aggregated Text: Backup for when official PDF links are broken.
+2. Teaching the Agents: "The Brain Logic"
+
+You will deploy 4 specialized scripts (Agents) on your cPanel. Here is how to instruct each one via your System Prompt:
+Agent Alpha: The Scout (Listing & Discovery)
+
+    Instruction: "Go to the 6 Assembly URLs daily. Compare today's list with yesterday's in the politicians table. If a new name appears or a seat becomes 'Vacant', update the database instantly."
+
+    Catch Logic: Focus on Name, Party, and Constituency strings.
+
+Agent Beta: The Miner (Deep Extraction)
+
+    Instruction: "Visit the profile sub-link for each politician found by Agent Alpha. Extract their 'Contact Details', 'Education', and 'Committee Membership'."
+
+    Catch Logic: Use Python BeautifulSoup to find specific CSS classes like .member-info or .portfolio-table.
+
+Agent Gamma: The Auditor (Asset OCR)
+
+    Instruction: "Download Asset PDFs from ECP or Mirror sites. Extract numerical values for 'Land', 'Cash', and 'Jewelry'. Flag if current year assets grew by >50% compared to last year."
+
+    Catch Logic: Use PyPDF2 or Tabula-py to convert PDF tables into CSV data.
+
+Agent Delta: The Samurai (UI & Summary)
+
+    Instruction: "Use the API Key Pool. When a user selects a profile, combine data from Alpha, Beta, and Gamma. Write a summary that highlights 'The Gold, The Ghost, and The Gap' (Wealth, Hidden Links, and Missing Data)."
+
+3. Technical Deployment on cPanel
+
+To run this without hitting limits, use this folder and file structure in your File Manager:
+Folder: /public_html/accountability_ai/
+
+    config.php: Stores your API Key Pool and Database Credentials.
+
+    cron_runner.py: The master script that rotates keys and triggers agents.
+
+    api_rotator.py:
+    Python
+
+    keys = ["AIzaSyCFRrqU8uaGD7GUzwuLsP3Y3vqG2lsKUfw", "KEY_2", "KEY_3"]
+    # Logic: If key 1 returns "Rate Limit", pop it and move to key 2.
+
+    /data/: Stores raw downloaded PDFs before they are processed into MySQL.
+
+Database Schema (MySQL)
+
+Create a table named politician_forensics:
+
+    id (Primary Key)
+
+    cnic_hash (For privacy/linking)
+
+    asset_json (Stores year-by-year wealth)
+
+    risk_score (Calculated by Agent Gamma)
+
+    source_links (URLs to original .gov.pk files)
+
+4. UI/UX "Crime Thriller" Visuals
+
+For the frontend, use React.js with these specific visual libraries:
+
+    Cytoscape.js: To draw the "Web of Influence" (Lines connecting a politician to their family's businesses found in SECP).
+
+    Framer Motion: For "Matrix-style" text scanning animations when the AI is summarizing.
+
+    Red-Flag Alerts: Use a glowing red pulse for high "Transparency Risk Scores."
+
+Summary of Build Strategy
+
+We are building a Decentralized Forensic Engine. By splitting the tasks into 4 Agents and using an API Key Pool, you ensure that even if one government site blocks your IP or one API key hits a limit, the system keeps running.
