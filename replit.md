@@ -1,113 +1,90 @@
-# Pakistan Accountability Intelligence System (PAIS)
-
-## Project Description
-
-A full-stack government transparency and accountability tool for Pakistan. Inspired by Bruno César's Brazilian corruption-detection AI, PAIS cross-references Pakistani public databases to detect patterns of suspicious activity and generates percentage-based risk scores for public officials.
-
-## Key Features
-
-- **15 Pakistani public databases** catalogued (NADRA, ECP, SECP, PPRA, AGPR, FBR, NAB, PSDP, PRAL, SBP, FIA, TMA, DGI, OEC, CCP)
-- **8 tracked officials** with detailed risk profiles
-- **10 suspicious pattern alerts** (ghost employees, circular contracts, fund diversion, asset mismatch)
-- **Risk scoring** (0-100%) — legally safe: no direct "corruption" labels
-- **Relationship graph** visualizing official → company → relative → contract chains
-- **Pattern types**: ghost employees, circular contracts, relative enrichment, fund diversion, procurement anomaly, asset mismatch
-
-## Original Workspace
-
-# Workspace
+# PAIS — Pakistan Accountability Intelligence System
 
 ## Overview
+A full-stack accountability intelligence platform cross-referencing Pakistani government databases to detect corruption patterns using mathematical risk scoring (0-100%). Built for journalists and anti-corruption watchdogs.
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+## Architecture
+- **Frontend**: React + Vite + TailwindCSS + ShadCN, monorepo at `artifacts/pakistan-accountability/`
+- **Backend**: Express + TypeScript at `artifacts/api-server/`, port 8080
+- **Database**: PostgreSQL via Drizzle ORM, workspace `lib/db/`
+- **Scripts**: Seed scripts at `scripts/`
+- **Deploy**: cPanel packaging guide at `deploy/cpanel/README.md`
 
-## Stack
+## Features
 
-- **Monorepo tool**: pnpm workspaces
-- **Node.js version**: 24
-- **Package manager**: pnpm
-- **TypeScript version**: 5.9
-- **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
-- **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+### Core Pages
+- `/` — Dashboard: risk overview, trending alerts, top-risk officials
+- `/parties` — Party breakdown with officials risk tables (all major parties: PML-N, PPP, PTI, MQM-P, etc.)
+- `/officials` — Searchable table of 25 officials with risk badges
+- `/officials/:id` — Official detail: SVG connection map, Gemini AI summary, risk factor bars, funding chart
+- `/risk-scores` — Risk scoring methodology explained
+- `/alerts` — Live alert feed (16+ alerts seeded)
+- `/databases` — Data sources info page
 
-## Structure
+### Toshakhana Registry (`/toshakhana`)
+- 42 historical records (2002-2023) seeded from Kaggle/Cabinet Division data
+- Stats: total value (PKR 98.7 Cr), retention rate (93%), top recipient
+- Highest value gifts widget, year/name filter, full searchable table
 
-```text
-artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
-│   ├── api-spec/           # OpenAPI spec + Orval codegen config
-│   ├── api-client-react/   # Generated React Query hooks
-│   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+### Live Scrapers (`/scrapers`) — Agent Alpha
+- 6 scraper targets: National Assembly, OpenParliament (NA/Sindh/KPK/Senate), Punjab Assembly
+- Run individual or full sweep with live log display
+- Auto-refreshes every 5 seconds when running
+- Scraper log history persisted in DB
+
+### AI Integration
+- Gemini 1.5 Flash (`GOOGLE_API` secret) generates natural language risk summaries
+- Route: `/api/officials/:id/summary`
+
+## Database Tables
+- `officials` — 25 seeded officials across all major parties
+- `alerts` — 16 seeded alerts
+- `databases` — data sources registry
+- `risk_scores` — risk scoring records
+- `toshakhana_history` — 42 Toshakhana records (2002-2023)
+- `scraped_members` — live scraped parliament members
+- `scraper_logs` — scraper run history
+
+## Scraper Infrastructure
+- `artifacts/api-server/src/routes/scraper.ts` — axios+cheerio scrapers
+- POST `/api/scraper/run` with `{ target: "na"|"sindh"|"kpk"|"senate"|"punjab"|"openparliament_na"|"all" }`
+- GET `/api/scraper/logs` — scraper run history
+- GET `/api/scraper/members` — scraped member records
+- Note: .gov.pk sites may block Replit IPs; scrapers work best from VPS/cPanel server
+
+## cPanel Deployment
+See `deploy/cpanel/README.md` for 3 deployment methods:
+1. cPanel Node.js Selector (recommended for modern hosts)
+2. PHP proxy + VPS backend
+3. Static frontend export (React only, API stays on Replit)
+
+Cron job script: `deploy/cpanel/cron-scraper.js` for automated daily scraping.
+
+## Seeding
+```bash
+pnpm --filter @workspace/scripts run seed-pakistan    # 25 officials, 16 alerts
+pnpm --filter @workspace/scripts run seed-toshakhana  # 42 Toshakhana records
+pnpm --filter @workspace/db run push-force             # Push DB schema changes
 ```
 
-## TypeScript & Composite Projects
+## Key Files
+- `artifacts/pakistan-accountability/src/App.tsx` — Routes
+- `artifacts/pakistan-accountability/src/components/layout.tsx` — Sidebar nav (8 links)
+- `artifacts/pakistan-accountability/src/pages/official-detail.tsx` — AI summary + SVG ConnectionMap
+- `artifacts/pakistan-accountability/src/pages/toshakhana.tsx` — Toshakhana registry
+- `artifacts/pakistan-accountability/src/pages/scraper.tsx` — Scraper admin
+- `artifacts/api-server/src/routes/scraper.ts` — Scraper backend
+- `lib/db/src/schema/toshakhana.ts` — Toshakhana + scraped_members + scraper_logs tables
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references. This means:
+## Environment Secrets
+- `DATABASE_URL` — PostgreSQL connection string
+- `GOOGLE_API` or `GOOGLE_API_KEY` — Gemini AI API key
 
-- **Always typecheck from the root** — run `pnpm run typecheck` (which runs `tsc --build --emitDeclarationOnly`). This builds the full dependency graph so that cross-package imports resolve correctly. Running `tsc` inside a single package will fail if its dependencies haven't been built yet.
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck; actual JS bundling is handled by esbuild/tsx/vite...etc, not `tsc`.
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array. `tsc --build` uses this to determine build order and skip up-to-date packages.
+## Risk Scoring
+Scores are 0-100% calculated from: undeclared assets, PPRA contract anomalies, cross-database flags, network connections, wealth disparity. Never uses "corrupt" or "suspect" language — only mathematical risk indicators.
 
-## Root Scripts
-
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
-
-## Packages
-
-### `artifacts/api-server` (`@workspace/api-server`)
-
-Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
-
-- Entry: `src/index.ts` — reads `PORT`, starts Express
-- App setup: `src/app.ts` — mounts CORS, JSON/urlencoded parsing, routes at `/api`
-- Routes: `src/routes/index.ts` mounts sub-routers; `src/routes/health.ts` exposes `GET /health` (full path: `/api/health`)
-- Depends on: `@workspace/db`, `@workspace/api-zod`
-- `pnpm --filter @workspace/api-server run dev` — run the dev server
-- `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
-- Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
-
-### `lib/db` (`@workspace/db`)
-
-Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
-
-- `src/index.ts` — creates a `Pool` + Drizzle instance, exports schema
-- `src/schema/index.ts` — barrel re-export of all models
-- `src/schema/<modelname>.ts` — table definitions with `drizzle-zod` insert schemas (no models definitions exist right now)
-- `drizzle.config.ts` — Drizzle Kit config (requires `DATABASE_URL`, automatically provided by Replit)
-- Exports: `.` (pool, db, schema), `./schema` (schema only)
-
-Production migrations are handled by Replit when publishing. In development, we just use `pnpm --filter @workspace/db run push`, and we fallback to `pnpm --filter @workspace/db run push-force`.
-
-### `lib/api-spec` (`@workspace/api-spec`)
-
-Owns the OpenAPI 3.1 spec (`openapi.yaml`) and the Orval config (`orval.config.ts`). Running codegen produces output into two sibling packages:
-
-1. `lib/api-client-react/src/generated/` — React Query hooks + fetch client
-2. `lib/api-zod/src/generated/` — Zod schemas
-
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
-
-### `lib/api-zod` (`@workspace/api-zod`)
-
-Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used by `api-server` for response validation.
-
-### `lib/api-client-react` (`@workspace/api-client-react`)
-
-Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
-
-### `scripts` (`@workspace/scripts`)
-
-Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+## UI Design
+- Dark theme: `bg-background` (#0a0a0e), green primary (#22c55e)
+- Risk colors: low=green, medium=yellow, high=orange, critical=red
+- "scanline" CSS overlay for terminal aesthetic
+- ForceGraph2D is NOT used — replaced with custom SVG ConnectionMap

@@ -6,10 +6,14 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "seed-pakistan": "tsx ./src/seed-pakistan.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed-toshakhana": "tsx ./src/seed-toshakhana.ts"
   },
   "dependencies": {
-    "@workspace/db": "workspace:*"
+    "@workspace/db": "workspace:*",
+    "axios": "^1.13.6",
+    "cheerio": "^1.2.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "catalog:",

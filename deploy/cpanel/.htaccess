@@ -1,0 +1,21 @@
+Options -MultiViews
+RewriteEngine On
+
+# If Node.js Passenger is running - proxy all to it
+# (Passenger handles this automatically when app is set up via cPanel)
+
+# For SPA routing - serve index.html for all frontend routes
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteRule ^(.*)$ /index.html [QSA,L]
+
+# Security headers
+Header always set X-Frame-Options DENY
+Header always set X-Content-Type-Options nosniff
+Header always set Referrer-Policy no-referrer
+
+# Cache static assets
+<FilesMatch "\.(js|css|png|jpg|svg|ico|woff2)$">
+  Header set Cache-Control "max-age=31536000, public"
+</FilesMatch>
