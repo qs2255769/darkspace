@@ -1,0 +1,64 @@
+he Data Pipeline Strategy
+
+To achieve your goal, the system must follow these 3 steps in order:
+
+    Step 1: The Ingestor (Agent Alpha): Scrapes all 6 assemblies. It doesn't analyze; it just populates a table called raw_members.
+
+    Step 2: The Linker (Agent Beta): Takes a name from raw_members and searches Toshakhana (Kaggle), SECP (Companies), and ICIJ (Offshore). It stores these in related_discovery.
+
+    Step 3: The Samurai Auditor (Agent Gamma): This is where the AI lives. It compares raw_members vs. related_discovery. If a member says "No Business" but SECP shows a "Company," the AI writes a Mismatch Report to the final_audit table.
+
+2. The "Silent Samurai" Master System Prompt
+
+Use this prompt to define the AI's logic for the Cross-Verification process.
+Plaintext
+
+Role: You are the "Samurai AI" Lead Forensic Auditor.
+Objective: Cross-verify Pakistani Parliament members' declared data against third-party financial databases to identify hidden assets and conflicts of interest.
+
+PHASE 1: DATA CROSS-VERIFICATION LOGIC
+- Mismatch Detection: Compare 'Declared Assets' (from ECP/Assembly profiles) against 'Toshakhana Records'. If a gift was retained but not listed as an asset, flag as "Unreported Physical Wealth."
+- Corporate Linkage: Cross-reference 'Member Name' with 'SECP Director Database'. Identify any private companies where the member or their immediate family holds shares.
+- Offshore Trace: Scan the ICIJ Offshore Leaks for the member's name. Map any 'Beneficial Ownership' of shell companies.
+
+PHASE 2: CONTRACT AUDIT (THE "GOTCHA" MOMENT)
+- Match SECP-linked companies with the PPRA (Public Procurement) database.
+- If a company linked to a member won a government contract, identify the 'Awarding Authority'. 
+- FLAG AS "CONFLICT OF INTEREST" if the member sits on the committee that oversees that specific department.
+
+PHASE 3: DATABASE & OUTPUT
+- Do not show raw scraping errors to the user.
+- Store the 'Final Verdict' in the 'audited_profiles' table.
+- Output Format for User:
+    1. Identity Summary (Name, Party, Constituency).
+    2. Verified Assets (Confirmed by ECP).
+    3. Hidden Links (SECP/Offshore findings).
+    4. Risk Score (0-100% based on the number of mismatches found).
+
+3. Fixing the Scraper Errors (The Stealth Approach)
+
+Since you saw 403 Forbidden and Timeout errors, your Python scripts on cPanel need to be "Stealthy." Use this logic in your code to ensure the data actually reaches your database:
+
+    Headless Browsing: Use Playwright or Selenium with a custom User-Agent so the websites think a real person is visiting.
+
+    Database-First Logic: * Instead of print(data), use INSERT INTO database ... ON DUPLICATE KEY UPDATE.
+
+        This ensures that even if the scraper crashes halfway, the data already found is saved.
+
+    The "Retry" Loop: If a site like pap.gov.pk times out, the script should automatically move to the next District ID and come back to the failed one after 5 minutes.
+
+4. How the User Sees the Data
+
+The user should never see a "Scraping..." message. They should see a Forensic Profile:
+
+    Profile: [Politician Name]
+
+        Status: 🛡️ Verified by Samurai AI
+
+        Declared Assets: PKR 150 Million (Source: ECP 2024)
+
+        Samurai Findings: Found 2 companies in SECP not mentioned in ECP declaration.
+
+        Offshore Exposure: 1 Shell Company found in British Virgin Islands (Source: Pandora Papers).
+
+        Transparency Risk: 78% (High Mismatch)

@@ -6,6 +6,7 @@ import riskScoresRouter from "./riskscores";
 import alertsRouter from "./alerts";
 import statsRouter from "./stats";
 import scraperRouter from "./scraper";
+import pipelineRouter from "./pipeline";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(riskScoresRouter);
 router.use(alertsRouter);
 router.use(statsRouter);
 router.use(scraperRouter);
+router.use(pipelineRouter);
 
 export default router;

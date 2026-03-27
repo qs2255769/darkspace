@@ -1,30 +1,53 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { 
+import {
   LayoutDashboard, Database, Users, Activity, AlertTriangle,
-  Menu, X, Search, Shield, Flag, Archive, Cpu
+  Menu, X, Search, Shield, Flag, Archive, Cpu, Sword, ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button, Input } from "./ui";
 
 const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "By Party", href: "/parties", icon: Flag },
-  { name: "All Officials", href: "/officials", icon: Users },
-  { name: "Risk Scores", href: "/risk-scores", icon: Activity },
-  { name: "Active Alerts", href: "/alerts", icon: AlertTriangle },
-  { name: "Toshakhana", href: "/toshakhana", icon: Archive },
-  { name: "Live Scrapers", href: "/scrapers", icon: Cpu },
-  { name: "Data Sources", href: "/databases", icon: Database },
+  { name: "Dashboard", href: "/", icon: LayoutDashboard, group: "Overview" },
+  { name: "By Party", href: "/parties", icon: Flag, group: "Overview" },
+  { name: "All Officials", href: "/officials", icon: Users, group: "Overview" },
+  { name: "Risk Scores", href: "/risk-scores", icon: Activity, group: "Overview" },
+  { name: "Active Alerts", href: "/alerts", icon: AlertTriangle, group: "Overview" },
+  { name: "Forensic Pipeline", href: "/pipeline", icon: Sword, group: "Intelligence", highlight: true },
+  { name: "Forensic Profiles", href: "/forensic-profiles", icon: Shield, group: "Intelligence" },
+  { name: "Toshakhana", href: "/toshakhana", icon: Archive, group: "Data Sources" },
+  { name: "Live Scrapers", href: "/scrapers", icon: Cpu, group: "Data Sources" },
+  { name: "Data Sources", href: "/databases", icon: Database, group: "Data Sources" },
 ];
+
+const groups = ["Overview", "Intelligence", "Data Sources"];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
+  const NavLink = ({ item, onClick }: { item: typeof navigation[0]; onClick?: () => void }) => {
+    const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+    return (
+      <Link href={item.href} onClick={onClick} className={cn(
+        "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all group relative",
+        item.highlight && !isActive
+          ? "text-risk-critical border border-risk-critical/20 bg-risk-critical/5 hover:bg-risk-critical/10"
+          : isActive
+            ? "bg-primary/15 text-primary border border-primary/20"
+            : "text-muted-foreground hover:bg-white/5 hover:text-foreground border border-transparent"
+      )}>
+        {isActive && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-r-full" />}
+        <item.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : item.highlight && !isActive ? "text-risk-critical" : "group-hover:text-foreground")} />
+        <span>{item.name}</span>
+        {item.highlight && !isActive && <span className="ml-auto text-[8px] font-mono bg-risk-critical/20 text-risk-critical px-1 py-0.5 rounded">AI</span>}
+      </Link>
+    );
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-background scanline">
-      {/* Mobile sidebar */}
+      {/* Mobile sidebar overlay */}
       <div className={cn("fixed inset-0 z-50 lg:hidden", mobileMenuOpen ? "block" : "hidden")}>
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
         <div className="fixed inset-y-0 left-0 w-64 glass-panel border-y-0 border-l-0 rounded-none p-5 shadow-2xl overflow-y-auto">
@@ -36,18 +59,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <nav className="flex flex-col gap-1">
-            {navigation.map((item) => {
-              const isActive = location === item.href;
-              return (
-                <Link key={item.name} href={item.href} onClick={() => setMobileMenuOpen(false)} className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
-                  isActive ? "bg-primary/10 text-primary border border-primary/20" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                )}>
-                  <item.icon className="h-4 w-4" /> {item.name}
-                </Link>
-              );
-            })}
+          <nav className="flex flex-col gap-0.5">
+            {navigation.map(item => (
+              <NavLink key={item.name} item={item} onClick={() => setMobileMenuOpen(false)} />
+            ))}
           </nav>
         </div>
       </div>
@@ -56,7 +71,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <div className="hidden lg:flex lg:w-60 lg:flex-col glass-panel border-y-0 border-l-0 rounded-none z-10 shrink-0">
         <div className="flex flex-col flex-1 overflow-y-auto px-4 py-6">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 mb-7 group px-1">
+          <Link href="/" className="flex items-center gap-2.5 mb-6 group px-1">
             <div className="p-1.5 rounded-xl bg-primary/10 border border-primary/20 group-hover:scale-105 transition-transform">
               <Shield className="h-5 w-5 text-primary" />
             </div>
@@ -66,33 +81,33 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
           </Link>
 
-          {/* Nav */}
-          <nav className="flex-1 flex flex-col gap-0.5">
-            {navigation.map((item) => {
-              const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+          {/* Grouped Nav */}
+          <nav className="flex-1 flex flex-col gap-4">
+            {groups.map(group => {
+              const items = navigation.filter(n => n.group === group);
               return (
-                <Link key={item.name} href={item.href} className={cn(
-                  "flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13px] font-medium transition-all group relative",
-                  isActive
-                    ? "bg-primary/15 text-primary border border-primary/20"
-                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground border border-transparent"
-                )}>
-                  {isActive && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-r-full" />}
-                  <item.icon className={cn("h-4 w-4 shrink-0", isActive ? "text-primary" : "group-hover:text-foreground")} />
-                  <span>{item.name}</span>
-                </Link>
+                <div key={group}>
+                  <div className="text-[9px] font-semibold text-muted-foreground uppercase tracking-widest px-3 mb-1.5">{group}</div>
+                  <div className="flex flex-col gap-0.5">
+                    {items.map(item => <NavLink key={item.name} item={item} />)}
+                  </div>
+                </div>
               );
             })}
           </nav>
 
           {/* Status */}
-          <div className="mt-5 p-3 rounded-xl bg-black/40 border border-white/5">
+          <div className="mt-4 p-3 rounded-xl bg-black/40 border border-white/5">
             <div className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">System Status</div>
             <div className="flex items-center gap-2 text-[11px]">
               <div className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-foreground">All nodes operational</span>
+              <span className="text-foreground">All agents operational</span>
             </div>
-            <p className="text-[9px] text-muted-foreground mt-1 font-mono">Sync: {new Date().toLocaleTimeString()}</p>
+            <div className="flex items-center gap-2 text-[11px] mt-1">
+              <div className="h-1.5 w-1.5 rounded-full bg-primary" />
+              <span className="text-foreground">Samurai AI: Ready</span>
+            </div>
+            <p className="text-[9px] text-muted-foreground mt-1 font-mono">{new Date().toLocaleTimeString()}</p>
           </div>
         </div>
       </div>
@@ -122,7 +137,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-7">
           {children}
         </main>

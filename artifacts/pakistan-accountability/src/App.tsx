@@ -13,6 +13,8 @@ import Alerts from "@/pages/alerts";
 import Parties from "@/pages/parties";
 import Toshakhana from "@/pages/toshakhana";
 import ScraperAdmin from "@/pages/scraper";
+import Pipeline from "@/pages/pipeline";
+import ForensicProfiles from "@/pages/forensic-profiles";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -30,6 +32,9 @@ function Router() {
         <Route path="/risk-scores" component={RiskScores} />
         <Route path="/alerts" component={Alerts} />
         <Route path="/toshakhana" component={Toshakhana} />
+        <Route path="/pipeline" component={Pipeline} />
+        <Route path="/forensic-profiles/:id" component={ForensicProfiles} />
+        <Route path="/forensic-profiles" component={ForensicProfiles} />
         <Route path="/scrapers" component={ScraperAdmin} />
         <Route path="/databases" component={Databases} />
         <Route component={NotFound} />
